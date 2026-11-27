@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 use gpui::{
     App, Bounds, Context, CursorStyle, FocusHandle, Focusable, FontWeight, KeyBinding, MouseButton,
-    ObjectFit, Pixels, SharedString, Subscription, Window, actions, canvas, div, img, prelude::*, px, relative,
+    ObjectFit, Pixels, SharedString, Subscription, Window, actions, canvas, div, img, prelude::*, px,
 };
 
 use crate::geom::collision::{self, Report};
@@ -23,6 +23,7 @@ use crate::model::{Doc, History};
 use crate::theme::{FONT_MONO, FONT_SANS, RADIUS, Theme};
 use crate::titlebar::{TitlebarState, window_frame};
 use crate::ui::canvas::{self, Frame, Handle, Selection, View, Xform};
+use crate::ui::dock::{Layout, Side};
 use crate::ui::fields::Edit;
 use crate::assets::Icon;
 use crate::ui::widgets::{badge, chip_icon, icon, icon_button, primary_button, tooltip};
@@ -124,6 +125,8 @@ enum Drag {
     Create { start: Vec2, current: Vec2 },
     Measure,
     Scrub { field: crate::ui::fields::Field, start_x: f64, start: f64 },
+    DockWidth { side: Side, start_x: f64, start: f32 },
+    DockSplit { side: Side, index: usize, start_y: f64, start: (f32, f32) },
 }
 
 struct Analysis {
@@ -176,6 +179,7 @@ pub struct Workspace {
     field_focus: FocusHandle,
     edit: Option<Edit>,
     settings_tab: panels::SettingsTab,
+    layout: Layout,
     collapsed: HashSet<panels::Group>,
     expanded_paths: HashSet<usize>,
     status: Option<Status>,
@@ -235,6 +239,7 @@ impl Workspace {
             field_focus,
             edit: None,
             settings_tab: Default::default(),
+            layout: Layout::load(),
             collapsed: HashSet::new(),
             expanded_paths: HashSet::new(),
             status: None,
@@ -782,25 +787,10 @@ impl Render for Workspace {
         };
 
         let toolbar = self.render_toolbar(&t, cx);
-        let left = div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .w(px(280.))
-            .h_full()
-            .border_r_1()
-            .border_color(t.border)
-            .child(panels::panel("selected", "Selected", Icon::Pointer, &t, self.render_selected(&t, cx)).max_h(relative(0.6)))
-            .child(panels::panel("outline", "Outline", Icon::Layers, &t, self.render_outline(&t, cx)).flex_1().border_t_1().border_color(t.border));
-        let right = div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .w(px(300.))
-            .h_full()
-            .border_l_1()
-            .border_color(t.border)
-            .child(panels::panel("settings", "Settings", Icon::Settings, &t, self.render_settings(&t, cx)).flex_1());
+        let left = self.render_dock(Side::Left, &t, cx);
+        let right = self.render_dock(Side::Right, &t, cx);
+        let left_handle = self.width_handle(Side::Left, &t, cx);
+        let right_handle = self.width_handle(Side::Right, &t, cx);
         let canvas = self.render_canvas(&t, frame, cx);
         let status = self.render_status(&t);
         let content = div()
@@ -808,7 +798,18 @@ impl Render for Workspace {
             .flex()
             .flex_col()
             .font_family(FONT_SANS)
-            .child(div().flex_1().min_h_0().flex().flex_row().child(left).child(canvas).child(right))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_row()
+                    .children(left)
+                    .children(left_handle)
+                    .child(canvas)
+                    .children(right_handle)
+                    .children(right),
+            )
             .child(status);
 
         div()

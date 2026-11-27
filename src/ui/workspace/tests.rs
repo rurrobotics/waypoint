@@ -6,6 +6,7 @@ use super::{Pending, SegTool, Workspace};
 use crate::geom::{SegmentKind, Shape, vec2};
 use crate::theme::Theme;
 use crate::ui::canvas::Selection;
+use crate::ui::dock::{PanelId, Side};
 use crate::ui::fields::Field;
 
 fn setup(cx: &mut TestAppContext) -> (Entity<Workspace>, &mut VisualTestContext) {
@@ -206,5 +207,37 @@ fn shift_drag_draws_a_square_region(cx: &mut TestAppContext) {
             .collect();
         assert_eq!(sizes, [vec2(400., 400.), vec2(400., 200.)]);
         assert_eq!(w.pending, None);
+    });
+}
+
+#[gpui::test]
+fn docks_resize_and_panels_move(cx: &mut TestAppContext) {
+    let (ws, cx) = setup(cx);
+    let width = ws.read_with(cx, |w, _| w.layout.left.width);
+
+    // The handle sits just right of the left dock.
+    let y = px(400.);
+    let x = px(width + 2.);
+    cx.simulate_mouse_move(point(x, y), None, Modifiers::none());
+    cx.simulate_mouse_down(point(x, y), MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_move(point(x + px(100.), y), MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_up(point(x + px(100.), y), MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    ws.read_with(cx, |w, _| assert!((w.layout.left.width - (width + 100.)).abs() < 0.5, "{}", w.layout.left.width));
+
+    // Move every panel to the right: the left dock disappears and the canvas grows.
+    let canvas_before = ws.read_with(cx, |w, _| w.canvas_bounds.get().unwrap().size.width);
+    ws.update(cx, |w, cx| {
+        w.move_panel(PanelId::Selected, Side::Right, None, cx);
+        w.move_panel(PanelId::Outline, Side::Right, Some(PanelId::Settings), cx);
+    });
+    for _ in 0..2 {
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+    }
+    ws.read_with(cx, |w, _| {
+        assert!(w.layout.left.panels.is_empty());
+        assert_eq!(w.layout.right.panels, [PanelId::Outline, PanelId::Settings, PanelId::Selected]);
+        assert!(w.canvas_bounds.get().unwrap().size.width > canvas_before);
     });
 }

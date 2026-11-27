@@ -1,16 +1,20 @@
 //! The side panels: what's selected, the outline of everything on the table,
 //! and the general settings (robot, map, project) in tabs.
 
-use gpui::{Context, Div, FontWeight, MouseButton, SharedString, Stateful, div, prelude::*, px};
+use gpui::{
+    Context, CursorStyle, Div, FontWeight, MouseButton, MouseDownEvent, SharedString, Stateful, Window, div,
+    prelude::*, px, relative,
+};
 
-use super::{ExportJson, OpenProject, SaveProject, SaveProjectAs, Workspace};
+use super::{Drag, ExportJson, OpenProject, SaveProject, SaveProjectAs, Workspace};
 use crate::assets::Icon;
 use crate::geom::{SegmentKind, Shape};
 use crate::model::Origin;
 use crate::theme::{FONT_MONO, RADIUS, Theme, alpha};
 use crate::ui::canvas::{self, Selection};
+use crate::ui::dock::{PanelId, Side};
 use crate::ui::fields::Field;
-use crate::ui::widgets::{button_icon, chip, icon, label, primary_button, section, section_title};
+use crate::ui::widgets::{button_icon, chip, icon, icon_button, label, primary_button, section, section_title};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SettingsTab {
@@ -28,26 +32,31 @@ pub enum Group {
     Regions,
 }
 
-/// Panel chrome: a header with icon and title above a scrolling body.
-pub(super) fn panel(id: &'static str, title: &str, i: Icon, t: &Theme, body: impl IntoElement) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .min_h_0()
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap_2()
-                .h(px(32.))
-                .px_3()
-                .border_b_1()
-                .border_color(t.border)
-                .child(icon(i, 14., t.muted))
-                .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).child(title.to_string())),
-        )
-        .child(div().id(id).flex_1().min_h_0().overflow_y_scroll().px_3().pb_3().child(body))
+/// Payload while a panel header is being dragged.
+#[derive(Clone, Copy)]
+pub struct DraggedPanel(PanelId);
+
+/// Floating chip that follows the cursor while dragging a panel.
+pub struct DragPreview(SharedString);
+
+impl Render for DragPreview {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = Theme::get(cx);
+        div()
+            .flex()
+            .items_center()
+            .gap_1()
+            .px_2()
+            .h(px(28.))
+            .rounded(RADIUS)
+            .bg(t.bg)
+            .border_1()
+            .border_color(t.accent)
+            .shadow_md()
+            .text_size(px(12.))
+            .child(icon(Icon::Grip, 14., t.muted))
+            .child(self.0.clone())
+    }
 }
 
 fn shape_icon(s: &Shape) -> Icon {
@@ -85,6 +94,161 @@ struct Row {
 }
 
 impl Workspace {
+    pub(super) fn move_panel(&mut self, panel: PanelId, to: Side, before: Option<PanelId>, cx: &mut Context<Self>) {
+        self.layout.move_panel(panel, to, before);
+        self.layout.save();
+        cx.notify();
+    }
+
+    /// A dock column, or a drop zone while a panel is dragged and the dock is empty.
+    pub(super) fn render_dock(&self, side: Side, t: &Theme, cx: &mut Context<Self>) -> Option<Div> {
+        let dock = self.layout.dock(side);
+        let accent = t.accent;
+        let on_drop = cx.listener(move |this, p: &DraggedPanel, _, cx| this.move_panel(p.0, side, None, cx));
+        if dock.panels.is_empty() {
+            return cx.has_active_drag().then(|| {
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .w(px(56.))
+                    .h_full()
+                    .border_1()
+                    .border_color(t.border_strong)
+                    .bg(t.bg)
+                    .drag_over::<DraggedPanel>(move |s, _, _, _| s.bg(alpha(accent, 0.15)))
+                    .on_drop(on_drop)
+                    .child(icon(if side == Side::Left { Icon::PanelLeft } else { Icon::PanelRight }, 16., t.muted))
+            });
+        }
+        let mut col = div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .w(px(dock.width))
+            .h_full()
+            .bg(t.bg)
+            .drag_over::<DraggedPanel>(move |s, _, _, _| s.bg(alpha(accent, 0.06)))
+            .on_drop(on_drop);
+        for (k, (&panel, &share)) in dock.panels.iter().zip(&dock.shares).enumerate() {
+            if k > 0 {
+                col = col.child(self.split_handle(side, k - 1, t, cx));
+            }
+            col = col.child(self.render_panel(panel, side, share, t, cx));
+        }
+        Some(col)
+    }
+
+    fn render_panel(&self, id: PanelId, side: Side, share: f32, t: &Theme, cx: &mut Context<Self>) -> Div {
+        let (i, body) = match id {
+            PanelId::Selected => (Icon::Pointer, self.render_selected(t, cx)),
+            PanelId::Outline => (Icon::Layers, self.render_outline(t, cx)),
+            PanelId::Settings => (Icon::Settings, self.render_settings(t, cx)),
+        };
+        let accent = t.accent;
+        let other = side.other();
+        let header = div()
+            .id(("panel-header", id as usize))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_2()
+            .h(px(32.))
+            .pl_2()
+            .pr_1()
+            .border_b_1()
+            .border_color(t.border)
+            .cursor(CursorStyle::OpenHand)
+            .on_drag(DraggedPanel(id), |p, _, _, cx| cx.new(|_| DragPreview(p.0.title().into())))
+            .drag_over::<DraggedPanel>(move |s, _, _, _| s.bg(alpha(accent, 0.15)))
+            .on_drop(cx.listener(move |this, p: &DraggedPanel, _, cx| {
+                cx.stop_propagation();
+                this.move_panel(p.0, side, Some(id), cx);
+            }))
+            .child(icon(Icon::Grip, 14., t.muted))
+            .child(icon(i, 14., t.muted))
+            .child(div().flex_1().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).child(id.title()))
+            .child(
+                icon_button(
+                    ("panel-move", id as usize),
+                    if other == Side::Left { Icon::PanelLeft } else { Icon::PanelRight },
+                    if other == Side::Left { "Move to the left dock" } else { "Move to the right dock" },
+                    false,
+                    t,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.move_panel(id, other, None, cx))),
+            );
+        div()
+            .flex()
+            .flex_col()
+            .flex_basis(relative(share))
+            .flex_shrink()
+            .min_h_0()
+            .child(header)
+            .child(
+                div()
+                    .id(("panel-body", id as usize))
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .px_3()
+                    .pb_3()
+                    .child(body),
+            )
+    }
+
+    /// Drag handle between two stacked panels.
+    fn split_handle(&self, side: Side, index: usize, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
+        let accent = t.accent;
+        div()
+            .id(("split", side as usize * 16 + index))
+            .flex_none()
+            .h(px(5.))
+            .w_full()
+            .border_t_1()
+            .border_color(t.border)
+            .cursor(CursorStyle::ResizeUpDown)
+            .hover(move |s| s.bg(alpha(accent, 0.4)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    let shares = &this.layout.dock(side).shares;
+                    let start = (shares[index], shares[index + 1]);
+                    this.drag = Drag::DockSplit { side, index, start_y: canvas::to_vec(e.position).y, start };
+                }),
+            )
+    }
+
+    /// Drag handle between a dock and the canvas.
+    pub(super) fn width_handle(&self, side: Side, t: &Theme, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        if self.layout.dock(side).panels.is_empty() {
+            return None;
+        }
+        let accent = t.accent;
+        Some(
+            div()
+                .id(("dock-width", side as usize))
+                .flex_none()
+                .flex()
+                .justify_center()
+                .w(px(5.))
+                .h_full()
+                .cursor(CursorStyle::ResizeLeftRight)
+                .hover(move |s| s.bg(alpha(accent, 0.6)))
+                .child(div().w(px(1.)).h_full().bg(t.border))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                        cx.stop_propagation();
+                        let start = this.layout.dock(side).width;
+                        this.drag = Drag::DockWidth { side, start_x: canvas::to_vec(e.position).x, start };
+                    }),
+                ),
+        )
+    }
+
     /// One outline row: selectable, with a delete button revealed on hover.
     fn outline_row(&self, row: Row, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
         let Row { id, lead, name, detail, selects: selected, depth } = row;

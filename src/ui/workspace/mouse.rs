@@ -8,6 +8,7 @@ use crate::geom::shape::is_convex;
 use crate::geom::{Path, Pose, SegmentKind, Shape, Vec2, vec2};
 use crate::model::{Obstacle, Region, RegionColor};
 use crate::ui::canvas::{self, HIT_RADIUS, Handle, Preview, Selection, Xform};
+use crate::ui::dock::Side;
 use crate::ui::fields::Unit;
 
 const ANGLE_SNAP: f64 = PI / 12.;
@@ -289,6 +290,14 @@ impl Workspace {
                     self.measure = Some((from, self.snap_point(x.to_world(mouse), &e.modifiers)));
                 }
             }
+            Drag::DockWidth { side, start_x, start } => {
+                let dx = (mouse.x - start_x) as f32;
+                self.layout.set_width(side, if side == Side::Left { start + dx } else { start - dx });
+            }
+            Drag::DockSplit { side, index, start_y, start } => {
+                let height = self.canvas_bounds.get().map_or(600., |b| f32::from(b.size.height));
+                self.layout.resize_split(side, index, start, (mouse.y - start_y) as f32 / height.max(1.));
+            }
             Drag::Scrub { field, start_x, start } => {
                 let mut k = field.step();
                 if e.modifiers.shift {
@@ -323,6 +332,7 @@ impl Workspace {
             Drag::Handle { .. } | Drag::Object { .. } | Drag::Scrub { .. } => {
                 self.end_drag_edit();
             }
+            Drag::DockWidth { .. } | Drag::DockSplit { .. } => self.layout.save(),
             Drag::None | Drag::Pan { .. } => {}
         }
     }

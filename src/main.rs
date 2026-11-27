@@ -41,7 +41,7 @@ fn main() {
                 Theme::sync(window, cx);
                 cx.new(|cx| {
                     let mut workspace = Workspace::new(window, cx);
-                    // `waypoint strategy.waypoint` opens a project.
+                    // `waypoint strategy.json` opens a project.
                     if let Some(path) = std::env::args_os().nth(1) {
                         workspace.load_project(path.into(), cx);
                     }

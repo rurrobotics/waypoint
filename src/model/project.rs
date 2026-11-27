@@ -1,4 +1,4 @@
-use std::path::{Path as FsPath, PathBuf};
+use std::path::Path as FsPath;
 
 use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -17,13 +17,11 @@ pub struct Doc {
     pub paths: Vec<Path>,
 }
 
-/// A `*.waypoint` project file: self-contained (the map is embedded), plus
-/// the map file it was last loaded from or saved to.
+/// A project file: plain JSON holding the map, robot and paths. The
+/// background image path is stored relative to the file when possible.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Project {
     pub version: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub map_file: Option<PathBuf>,
     #[serde(flatten)]
     pub doc: Doc,
 }
@@ -37,10 +35,10 @@ impl Project {
             bail!("{} was saved by a newer Waypoint (format {})", path.display(), project.version);
         }
         let dir = path.parent().unwrap_or(FsPath::new(""));
-        for p in [&mut project.map_file, &mut project.doc.map.background].into_iter().flatten() {
-            if p.is_relative() {
-                *p = dir.join(&*p);
-            }
+        if let Some(p) = &mut project.doc.map.background
+            && p.is_relative()
+        {
+            *p = dir.join(&*p);
         }
         Ok(project)
     }
@@ -48,12 +46,10 @@ impl Project {
     pub fn save(&self, path: &FsPath) -> Result<()> {
         let mut project = self.clone();
         project.version = PROJECT_VERSION;
-        if let Some(dir) = path.parent() {
-            for p in [&mut project.map_file, &mut project.doc.map.background].into_iter().flatten() {
-                if let Ok(rel) = p.strip_prefix(dir) {
-                    *p = rel.to_path_buf();
-                }
-            }
+        if let (Some(dir), Some(p)) = (path.parent(), &mut project.doc.map.background)
+            && let Ok(rel) = p.strip_prefix(dir)
+        {
+            *p = rel.to_path_buf();
         }
         let text = serde_json::to_string_pretty(&project)?;
         std::fs::write(path, text).with_context(|| format!("writing {}", path.display()))
@@ -69,14 +65,14 @@ mod tests {
     fn save_load_roundtrip_relativises_paths() {
         let dir = std::env::temp_dir().join(format!("waypoint-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("demo.waypoint");
+        let file = dir.join("demo.json");
 
         let mut doc = Doc::default();
         doc.map.background = Some(dir.join("table.png"));
         let mut path = Path::new("Match A", Pose { x: 250., y: 250., theta: 0. });
         path.push_straight(vec2(1000., 250.), false, true);
         doc.paths.push(path);
-        let project = Project { version: PROJECT_VERSION, map_file: Some(dir.join("2026.wmap.toml")), doc };
+        let project = Project { version: PROJECT_VERSION, doc };
 
         project.save(&file).unwrap();
         let text = std::fs::read_to_string(&file).unwrap();

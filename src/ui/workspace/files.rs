@@ -2,16 +2,15 @@ use std::path::{Path as FsPath, PathBuf};
 
 use gpui::{Context, PathPromptOptions, PromptLevel, Window};
 
-use super::{ExportJson, NewProject, OpenMap, OpenProject, SaveMap, SaveProject, SaveProjectAs, Workspace};
+use super::{ExportJson, NewProject, OpenProject, SaveProject, SaveProjectAs, Workspace};
 use crate::export::{Exporter, JsonExporter};
-use crate::model::{Doc, Map, Project, project::PROJECT_VERSION};
+use crate::model::{Doc, Project, project::PROJECT_VERSION};
 use crate::ui::canvas::Selection;
 
 impl Workspace {
     fn dialog_dir(&self) -> PathBuf {
         self.project_path
             .as_deref()
-            .or(self.map_file.as_deref())
             .and_then(FsPath::parent)
             .map(FsPath::to_path_buf)
             .or_else(|| std::env::current_dir().ok())
@@ -90,7 +89,6 @@ impl Workspace {
     pub fn load_project(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         match Project::load(&path) {
             Ok(project) => {
-                self.map_file = project.map_file.clone();
                 self.project_path = Some(path.clone());
                 self.reset_with(project.doc, cx);
                 self.set_status(format!("Opened {}", file_name(&path)), false);
@@ -108,17 +106,17 @@ impl Workspace {
     }
 
     pub(super) fn save_project_as(&mut self, _: &SaveProjectAs, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_new_path(&self.dialog_dir(), Some("strategy.waypoint"));
+        let rx = cx.prompt_for_new_path(&self.dialog_dir(), Some("strategy.json"));
         cx.spawn_in(window, async move |this, cx| {
             let Ok(Ok(Some(path))) = rx.await else { return };
-            let path = with_extension(path, "waypoint");
+            let path = with_extension(path, "json");
             this.update(cx, |this, cx| this.write_project(path, cx)).ok();
         })
         .detach();
     }
 
-    fn write_project(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        let project = Project { version: PROJECT_VERSION, map_file: self.map_file.clone(), doc: self.doc.clone() };
+    pub(super) fn write_project(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        let project = Project { version: PROJECT_VERSION, doc: self.doc.clone() };
         match project.save(&path) {
             Ok(()) => {
                 self.set_status(format!("Saved {}", file_name(&path)), false);
@@ -128,53 +126,6 @@ impl Workspace {
             Err(e) => self.set_status(format!("{e:#}"), true),
         }
         cx.notify();
-    }
-
-    pub(super) fn open_map(&mut self, _: &OpenMap, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some("Open map".into()),
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(paths))) = rx.await else { return };
-            let Some(path) = paths.into_iter().next() else { return };
-            this.update(cx, |this, cx| match Map::load(&path) {
-                Ok(map) => {
-                    this.edit_doc(cx, |d| d.map = map);
-                    this.map_file = Some(path.clone());
-                    this.selection = Selection::None;
-                    this.auto_fit = true;
-                    this.last_canvas_size = Default::default();
-                    this.set_status(format!("Loaded map {}", file_name(&path)), false);
-                }
-                Err(e) => this.set_status(format!("{e:#}"), true),
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    pub(super) fn save_map(&mut self, _: &SaveMap, window: &mut Window, cx: &mut Context<Self>) {
-        let suggested = format!("eurobot-{}.wmap.toml", self.doc.map.year);
-        let rx = cx.prompt_for_new_path(&self.dialog_dir(), Some(&suggested));
-        cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(path))) = rx.await else { return };
-            let path = if path.to_string_lossy().ends_with(".toml") { path } else { with_extension(path, "wmap.toml") };
-            this.update(cx, |this, cx| {
-                match this.doc.map.save(&path) {
-                    Ok(()) => {
-                        this.set_status(format!("Saved map {}", file_name(&path)), false);
-                        this.map_file = Some(path);
-                    }
-                    Err(e) => this.set_status(format!("{e:#}"), true),
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
     }
 
     pub(super) fn pick_background(&mut self, window: &mut Window, cx: &mut Context<Self>) {

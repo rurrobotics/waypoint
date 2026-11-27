@@ -241,3 +241,29 @@ fn docks_resize_and_panels_move(cx: &mut TestAppContext) {
         assert!(w.canvas_bounds.get().unwrap().size.width > canvas_before);
     });
 }
+
+#[gpui::test]
+fn project_saves_and_loads_as_plain_json(cx: &mut TestAppContext) {
+    let (ws, cx) = setup(cx);
+    cx.simulate_keystrokes("p");
+    click(&ws, cx, 300., 300.);
+    click(&ws, cx, 1500., 300.);
+    cx.simulate_keystrokes("enter");
+
+    let file = std::env::temp_dir().join(format!("waypoint-ui-{}.json", std::process::id()));
+    let saved = ws.update(cx, |w, cx| {
+        w.write_project(file.clone(), cx);
+        assert!(!w.dirty);
+        w.doc.clone()
+    });
+    let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(json["paths"][0]["segments"][0]["type"], "straight");
+
+    ws.update(cx, |w, cx| {
+        w.doc.paths.clear();
+        w.load_project(file.clone(), cx);
+        assert_eq!(w.doc, saved);
+        assert_eq!(w.active_path, Some(0));
+    });
+    std::fs::remove_file(file).ok();
+}

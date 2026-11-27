@@ -1,6 +1,5 @@
-use std::path::{Path as FsPath, PathBuf};
+use std::path::PathBuf;
 
-use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::geom::{Shape, Vec2, vec2};
@@ -14,8 +13,7 @@ pub enum Origin {
     TopLeft,
 }
 
-/// One year's playing table. Saved on its own as `*.wmap.toml` so a whole
-/// team can share it, and embedded in every project.
+/// One year's playing table, embedded in every project (and template).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Map {
     pub name: String,
@@ -86,31 +84,6 @@ impl Map {
     pub fn size(&self) -> Vec2 {
         vec2(self.width, self.height)
     }
-
-    /// Loads a map file; a relative background path is resolved against the file.
-    pub fn load(path: &FsPath) -> Result<Self> {
-        let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let mut map: Map = toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-        if let (Some(bg), Some(dir)) = (&map.background, path.parent())
-            && bg.is_relative()
-        {
-            map.background = Some(dir.join(bg));
-        }
-        Ok(map)
-    }
-
-    /// Saves a map file; the background is stored relative to it when it sits
-    /// in the same directory tree.
-    pub fn save(&self, path: &FsPath) -> Result<()> {
-        let mut map = self.clone();
-        if let (Some(bg), Some(dir)) = (&self.background, path.parent())
-            && let Ok(rel) = bg.strip_prefix(dir)
-        {
-            map.background = Some(rel.to_path_buf());
-        }
-        let text = toml::to_string_pretty(&map)?;
-        std::fs::write(path, text).with_context(|| format!("writing {}", path.display()))
-    }
 }
 
 #[cfg(test)]
@@ -118,37 +91,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn toml_roundtrip_is_flat() {
+    fn json_roundtrip_is_flat() {
         let mut map = Map::default();
         map.obstacles.push(Obstacle {
             name: "Ramp".into(),
             shape: Shape::Rect { center: vec2(1500., 1800.), size: vec2(1200., 400.), rotation: 0. },
         });
         map.regions.push(Region {
-            name: "Start blue".into(),
+            name: "Start".into(),
             color: RegionColor::Blue,
             shape: Shape::Circle { center: vec2(200., 200.), radius: 150. },
         });
-        let text = toml::to_string_pretty(&map).unwrap();
-        assert!(text.contains("[[obstacles]]") && text.contains("type = \"rect\""), "{text}");
-        assert_eq!(toml::from_str::<Map>(&text).unwrap(), map);
+        let json = serde_json::to_string(&map).unwrap();
+        assert!(json.contains(r#"{"name":"Ramp","type":"rect","center":[1500.0,1800.0]"#), "{json}");
+        assert_eq!(serde_json::from_str::<Map>(&json).unwrap(), map);
     }
 
     #[test]
     fn hand_written_map() {
-        let map: Map = toml::from_str(
-            r#"
-            name = "Eurobot 2026"
-            width = 3000
-            height = 2000
-            origin = "top-left"
-
-            [[obstacles]]
-            name = "Pillar"
-            type = "circle"
-            center = [1500, 1000]
-            radius = 40
-            "#,
+        let map: Map = serde_json::from_str(
+            r#"{
+                "name": "Eurobot 2026", "width": 3000, "height": 2000, "origin": "top-left",
+                "obstacles": [{ "name": "Pillar", "type": "circle", "center": [1500, 1000], "radius": 40 }]
+            }"#,
         )
         .unwrap();
         assert_eq!(map.origin, Origin::TopLeft);

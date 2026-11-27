@@ -40,8 +40,6 @@ actions!(
         OpenProject,
         SaveProject,
         SaveProjectAs,
-        OpenMap,
-        SaveMap,
         ExportJson,
         DeleteSelection,
         Cancel,
@@ -147,7 +145,6 @@ pub struct Workspace {
     /// Document before the current drag, recorded on release if it changed.
     drag_snapshot: Option<Doc>,
     project_path: Option<PathBuf>,
-    map_file: Option<PathBuf>,
     dirty: bool,
     revision: u64,
     analysis: Option<Analysis>,
@@ -210,7 +207,6 @@ impl Workspace {
             history: History::new(200),
             drag_snapshot: None,
             project_path: None,
-            map_file: None,
             dirty: false,
             revision: 0,
             analysis: None,
@@ -819,8 +815,6 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::open_project))
             .on_action(cx.listener(Self::save_project))
             .on_action(cx.listener(Self::save_project_as))
-            .on_action(cx.listener(Self::open_map))
-            .on_action(cx.listener(Self::save_map))
             .on_action(cx.listener(Self::export_json))
             .on_action(cx.listener(Self::delete_selection))
             .on_action(cx.listener(Self::cancel))

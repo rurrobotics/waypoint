@@ -478,13 +478,7 @@ impl Workspace {
                             )))
                             .child(button_icon("bg-clear", None, "Clear", false, t).on_click(cx.listener(
                                 |this, _, _, cx| this.edit_doc(cx, |d| d.map.background = None),
-                            )))
-                            .child(button_icon("map-open", Some(Icon::FolderOpen), "Open map", false, t).on_click(
-                                cx.listener(|this, _, w, cx| this.open_map(&super::OpenMap, w, cx)),
-                            ))
-                            .child(button_icon("map-save", Some(Icon::Save), "Save map", false, t).on_click(
-                                cx.listener(|this, _, w, cx| this.save_map(&super::SaveMap, w, cx)),
-                            )),
+                            ))),
                     )
             }
             SettingsTab::Project => {

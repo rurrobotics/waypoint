@@ -175,6 +175,10 @@ pub struct Workspace {
     edit: Option<Edit>,
     settings_tab: panels::SettingsTab,
     layout: Layout,
+    /// The New ▾ template menu is open.
+    new_menu: bool,
+    /// Where user templates live (`None` in tests, so they never touch the user's files).
+    templates_dir: Option<PathBuf>,
     collapsed: HashSet<panels::Group>,
     expanded_paths: HashSet<usize>,
     status: Option<Status>,
@@ -233,6 +237,8 @@ impl Workspace {
             edit: None,
             settings_tab: Default::default(),
             layout: Layout::load(),
+            new_menu: false,
+            templates_dir: if cfg!(test) { None } else { crate::model::template::dir() },
             collapsed: HashSet::new(),
             expanded_paths: HashSet::new(),
             status: None,
@@ -445,6 +451,11 @@ impl Workspace {
     }
 
     fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+        if self.new_menu {
+            self.new_menu = false;
+            cx.notify();
+            return;
+        }
         if self.pending.is_some() || !self.polygon.is_empty() || self.measure.is_some() || !matches!(self.drag, Drag::None) {
             self.pending = None;
             self.polygon.clear();
@@ -604,9 +615,14 @@ impl Workspace {
             .flex_none()
             .items_center()
             .gap_1()
-            .child(icon_button("file-new", Icon::FilePlus, "New project (Ctrl+N)", false, t).on_click(cx.listener(|this, _, w, cx| {
-                this.new_project(&NewProject, w, cx)
-            })))
+            .child(
+                div()
+                    .child(
+                        icon_button("file-new", Icon::FilePlus, "New project from a template (Ctrl+N)", self.new_menu, t)
+                            .on_click(cx.listener(|this, _, w, cx| this.new_project(&NewProject, w, cx))),
+                    )
+                    .when(self.new_menu, |d| d.child(self.render_new_menu(t, cx))),
+            )
             .child(icon_button("file-open", Icon::FolderOpen, "Open project (Ctrl+O)", false, t).on_click(cx.listener(|this, _, w, cx| {
                 this.open_project(&OpenProject, w, cx)
             })))

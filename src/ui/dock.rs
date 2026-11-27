@@ -164,7 +164,7 @@ impl Layout {
     }
 
     fn file() -> Option<PathBuf> {
-        Some(config_dir()?.join("layout.json"))
+        Some(crate::model::config_dir()?.join("layout.json"))
     }
 
     /// The saved layout, or the default. Tests always get the default.
@@ -192,21 +192,6 @@ impl Layout {
             let _ = std::fs::write(file, json);
         }
     }
-}
-
-/// Per-user config directory for Waypoint, from the usual environment variables.
-pub fn config_dir() -> Option<PathBuf> {
-    let base = if cfg!(target_os = "windows") {
-        std::env::var_os("APPDATA").map(PathBuf::from)
-    } else if cfg!(target_os = "macos") {
-        std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support"))
-    } else {
-        std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-    };
-    Some(base?.join("waypoint"))
 }
 
 #[cfg(test)]

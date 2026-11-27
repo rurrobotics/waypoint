@@ -2,14 +2,14 @@
 //! and the general settings (robot, map, project) in tabs.
 
 use gpui::{
-    Context, CursorStyle, Div, FontWeight, MouseButton, MouseDownEvent, SharedString, Stateful, Window, div,
-    prelude::*, px, relative,
+    Context, CursorStyle, Div, FontWeight, MouseButton, MouseDownEvent, SharedString, Stateful, Window, anchored,
+    deferred, div, point, prelude::*, px, relative,
 };
 
 use super::{Drag, ExportJson, OpenProject, SaveProject, SaveProjectAs, Workspace};
 use crate::assets::Icon;
 use crate::geom::{SegmentKind, Shape};
-use crate::model::Origin;
+use crate::model::{Origin, template};
 use crate::theme::{FONT_MONO, RADIUS, Theme, alpha};
 use crate::ui::canvas::{self, Selection};
 use crate::ui::dock::{PanelId, Side};
@@ -94,6 +94,74 @@ struct Row {
 }
 
 impl Workspace {
+    /// Popover under the New button listing the templates.
+    pub(super) fn render_new_menu(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let tt = *t;
+        let mut menu = div()
+            .id("new-menu")
+            .flex()
+            .flex_col()
+            .w(px(260.))
+            .p_1()
+            .rounded(RADIUS)
+            .bg(t.bg)
+            .border_1()
+            .border_color(t.border)
+            .shadow_lg()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.new_menu = false;
+                cx.notify();
+            }))
+            .child(label(t, "New project from template").px_2().py_1());
+        for (k, template) in template::list(self.templates_dir.as_deref()).into_iter().enumerate() {
+            let detail = format!("{} × {}", canvas::format_mm(template.doc.map.width), canvas::format_mm(template.doc.map.height));
+            let shapes = template.doc.map.obstacles.len() + template.doc.map.regions.len();
+            menu = menu.child(
+                div()
+                    .id(("template", k))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .h(px(30.))
+                    .rounded(RADIUS)
+                    .cursor_pointer()
+                    .hover(move |s| s.bg(tt.elevated))
+                    .child(icon(if template.file.is_some() { Icon::Map } else { Icon::FilePlus }, 14., t.muted))
+                    .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).child(template.name.clone()))
+                    .child(
+                        div()
+                            .font_family(FONT_MONO)
+                            .text_size(px(10.))
+                            .text_color(t.muted)
+                            .child(if shapes > 0 { format!("{shapes} shapes") } else { detail }),
+                    )
+                    .on_click(cx.listener(move |this, _, w, cx| this.new_from_template(template.clone(), w, cx))),
+            );
+        }
+        if self.templates_dir.is_some() {
+            menu = menu.child(div().h(px(1.)).my_1().bg(t.border)).child(
+                div()
+                    .id("open-templates-folder")
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .h(px(30.))
+                    .rounded(RADIUS)
+                    .cursor_pointer()
+                    .text_size(px(12.))
+                    .text_color(t.muted)
+                    .hover(move |s| s.bg(tt.elevated))
+                    .child(icon(Icon::FolderOpen, 14., t.muted))
+                    .child("Open templates folder")
+                    .on_click(cx.listener(|this, _, _, cx| this.open_templates_folder(cx))),
+            );
+        }
+        deferred(anchored().offset(point(px(0.), px(32.))).snap_to_window_with_margin(px(8.)).child(menu))
+            .with_priority(1)
+    }
+
     pub(super) fn move_panel(&mut self, panel: PanelId, to: Side, before: Option<PanelId>, cx: &mut Context<Self>) {
         self.layout.move_panel(panel, to, before);
         self.layout.save();
@@ -479,6 +547,12 @@ impl Workspace {
                             .child(button_icon("bg-clear", None, "Clear", false, t).on_click(cx.listener(
                                 |this, _, _, cx| this.edit_doc(cx, |d| d.map.background = None),
                             ))),
+                    )
+                    .child(section_title("Template", t))
+                    .child(label(t, "Save this table, its obstacles, regions and the robot to start new projects from."))
+                    .child(
+                        button_icon("save-template", Some(Icon::Save), "Save as template", false, t)
+                            .on_click(cx.listener(|this, _, _, cx| this.save_template(cx))),
                     )
             }
             SettingsTab::Project => {

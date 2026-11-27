@@ -4,6 +4,7 @@ use gpui::{Context, PathPromptOptions, PromptLevel, Window};
 
 use super::{ExportJson, NewProject, OpenProject, SaveProject, SaveProjectAs, Workspace};
 use crate::export::{Exporter, JsonExporter};
+use crate::model::template::{self, Template};
 use crate::model::{Doc, Project, project::PROJECT_VERSION};
 use crate::ui::canvas::Selection;
 
@@ -58,14 +59,45 @@ impl Workspace {
         .detach();
     }
 
-    pub(super) fn new_project(&mut self, _: &NewProject, window: &mut Window, cx: &mut Context<Self>) {
-        self.confirm_discard(window, cx, |this, _, cx| {
-            // Keep the table and robot: a new strategy usually targets the same year.
-            let doc = Doc { map: this.doc.map.clone(), robot: this.doc.robot.clone(), paths: Vec::new() };
+    /// Ctrl+N and the New button: show the template menu.
+    pub(super) fn new_project(&mut self, _: &NewProject, _: &mut Window, cx: &mut Context<Self>) {
+        self.new_menu = !self.new_menu;
+        cx.notify();
+    }
+
+    /// Starts an untitled project from a template (after confirming unsaved changes).
+    pub(super) fn new_from_template(&mut self, template: Template, window: &mut Window, cx: &mut Context<Self>) {
+        self.new_menu = false;
+        self.confirm_discard(window, cx, move |this, _, cx| {
             this.project_path = None;
-            this.reset_with(doc, cx);
-            this.dirty = false;
+            this.reset_with(template.doc, cx);
+            this.set_status(format!("New project from “{}”", template.name), false);
         });
+    }
+
+    /// Saves the current map and robot as a user template named after the map.
+    pub(super) fn save_template(&mut self, cx: &mut Context<Self>) {
+        let Some(dir) = self.templates_dir.clone() else {
+            self.set_status("No config directory to save templates in", true);
+            cx.notify();
+            return;
+        };
+        let name = format!("{} {}", self.doc.map.name, self.doc.map.year);
+        match template::save(&dir, name.trim(), &self.doc) {
+            Ok(file) => self.set_status(format!("Saved template {}", file_name(&file)), false),
+            Err(e) => self.set_status(format!("{e:#}"), true),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn open_templates_folder(&mut self, cx: &mut Context<Self>) {
+        self.new_menu = false;
+        if let Some(dir) = &self.templates_dir
+            && std::fs::create_dir_all(dir).is_ok()
+        {
+            cx.open_with_system(dir);
+        }
+        cx.notify();
     }
 
     pub(super) fn open_project(&mut self, _: &OpenProject, window: &mut Window, cx: &mut Context<Self>) {

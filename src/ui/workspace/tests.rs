@@ -267,3 +267,41 @@ fn project_saves_and_loads_as_plain_json(cx: &mut TestAppContext) {
     });
     std::fs::remove_file(file).ok();
 }
+
+#[gpui::test]
+fn new_project_from_a_saved_template(cx: &mut TestAppContext) {
+    let (ws, cx) = setup(cx);
+    let dir = std::env::temp_dir().join(format!("waypoint-ui-templates-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+
+    // A table with one obstacle and a path, saved as a template.
+    cx.simulate_keystrokes("o");
+    drag(&ws, cx, (1400., 900.), (1600., 1100.));
+    cx.simulate_keystrokes("p");
+    click(&ws, cx, 300., 300.);
+    click(&ws, cx, 900., 300.);
+    cx.simulate_keystrokes("enter");
+    ws.update(cx, |w, cx| {
+        w.templates_dir = Some(dir.clone());
+        w.save_template(cx);
+        w.dirty = false; // skip the discard prompt
+    });
+
+    cx.simulate_keystrokes("ctrl-n");
+    let template = ws.read_with(cx, |w, _| {
+        assert!(w.new_menu);
+        let all = crate::model::template::list(w.templates_dir.as_deref());
+        assert_eq!(all.len(), 2);
+        all[1].clone()
+    });
+    ws.update_in(cx, |w, window, cx| w.new_from_template(template, window, cx));
+    cx.run_until_parked();
+
+    ws.read_with(cx, |w, _| {
+        assert!(!w.new_menu);
+        assert_eq!(w.doc.map.obstacles.len(), 1);
+        assert!(w.doc.paths.is_empty(), "templates carry no paths");
+        assert!(w.project_path.is_none());
+    });
+    std::fs::remove_dir_all(&dir).ok();
+}

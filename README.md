@@ -76,7 +76,7 @@ cargo test                     # geometry, model and headless UI tests
 | New path | **New path** in the toolbar or `P`, then click to add waypoints. Pick the segment kind, Reverse and Auto turn in the floating bar. `Enter`, `Esc`, double-click or **Done** finishes. |
 | Add waypoints to a path | Select the path → **Add waypoints** |
 | New obstacle / region | Click a shape icon next to **Obstacle** / **Region** (`O` / `R` for a rectangle), then drag. Polygons: click the vertices, `Enter` or double-click closes. `Shift` draws a square. |
-| Measure | Ruler icon or `M`, then drag |
+| Measure | Ruler icon or `M`, then drag. `Shift` keeps the line horizontal, vertical or diagonal (45°). |
 | Edit | Drag waypoints, tangent handles (Hermite), angle and radius handles (turns) and shapes. Or type values in the *Selected* panel: click a field, or drag its label to scrub (Shift ×10, Alt ÷10). Arrow keys step. |
 | Snap | Toolbar magnet cycles the grid (off, 1, 5, 10, 50, 100 mm). `Shift` snaps angles to 15°, `Alt` disables grid snap. |
 | View | Wheel zooms, right- or middle-drag pans, `F` fits the table |

@@ -332,3 +332,30 @@ fn measure_drag_shows_distance(cx: &mut TestAppContext) {
         assert_eq!(w.pending, None);
     });
 }
+
+#[gpui::test]
+fn shift_measure_snaps_to_orthogonal_and_diagonal(cx: &mut TestAppContext) {
+    let (ws, cx) = setup(cx);
+    let measured = |ws: &Entity<Workspace>, cx: &mut VisualTestContext| {
+        ws.read_with(cx, |w, _| w.measure.expect("measurement kept"))
+    };
+
+    // Nearly horizontal → horizontal.
+    cx.simulate_keystrokes("m");
+    drag_with(&ws, cx, (500., 500.), (1500., 560.), Modifiers::shift());
+    let (a, b) = measured(&ws, cx);
+    assert!((b.y - a.y).abs() < 1e-6 && (b.x - 1500.).abs() < 1., "{a:?} {b:?}");
+
+    // Near 45° → exactly diagonal.
+    cx.simulate_keystrokes("m");
+    drag_with(&ws, cx, (500., 500.), (1000., 1060.), Modifiers::shift());
+    let (a, b) = measured(&ws, cx);
+    let d = b - a;
+    assert!((d.x - d.y).abs() < 1e-6 && d.x > 0., "{d:?}");
+
+    // Nearly vertical, downwards → vertical.
+    cx.simulate_keystrokes("m");
+    drag_with(&ws, cx, (1500., 1500.), (1530., 600.), Modifiers::shift());
+    let (a, b) = measured(&ws, cx);
+    assert!((b.x - a.x).abs() < 1e-6 && b.y < a.y, "{a:?} {b:?}");
+}

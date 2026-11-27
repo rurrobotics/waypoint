@@ -721,7 +721,7 @@ impl Workspace {
                 "Click vertices · Enter or double-click closes (convex only)"
             }
             Some(Pending::Shape { .. }) => "Drag to draw · Shift makes it square",
-            Some(Pending::Measure) => "Drag to measure",
+            Some(Pending::Measure) => "Drag to measure · Shift keeps it horizontal, vertical or diagonal",
         };
         let zoom = format!("{:.0}%", self.view.zoom * 100.);
         let name = self

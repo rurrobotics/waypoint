@@ -39,6 +39,19 @@ impl Workspace {
         self.snap_point(world, m)
     }
 
+    /// End of a measurement: Shift keeps it horizontal, vertical or diagonal
+    /// (45° steps) by projecting the pointer onto the nearest such line;
+    /// otherwise grid snap.
+    fn measure_end(&self, from: Vec2, world: Vec2, m: &Modifiers) -> Vec2 {
+        if !m.shift {
+            return self.snap_point(world, m);
+        }
+        let d = world - from;
+        let step = PI / 4.;
+        let dir = Vec2::from_angle((d.angle() / step).round() * step);
+        from + dir * d.dot(dir)
+    }
+
     fn append(&self, path: &mut Path, target: Vec2) {
         match self.seg_tool {
             SegTool::Straight => path.push_straight(target, self.reverse, self.auto_turn),
@@ -287,7 +300,7 @@ impl Workspace {
             }
             Drag::Measure => {
                 if let (Some(x), Some((from, _))) = (x, self.measure) {
-                    self.measure = Some((from, self.snap_point(x.to_world(mouse), &e.modifiers)));
+                    self.measure = Some((from, self.measure_end(from, x.to_world(mouse), &e.modifiers)));
                 }
             }
             Drag::DockWidth { side, start_x, start } => {

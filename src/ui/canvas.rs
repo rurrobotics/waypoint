@@ -176,6 +176,7 @@ pub fn path_distance(samples: &[Sample], x: &Xform, mouse: Vec2) -> f64 {
 pub enum Selection {
     #[default]
     None,
+    Path(usize),
     Waypoint {
         path: usize,
         index: usize,
@@ -486,10 +487,11 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
                 Selection::Waypoint { path: sp, index } if sp == i && index > 0 => Some(index - 1),
                 _ => None,
             };
+            let path_selected = frame.selection == Selection::Path(i);
             for (si, (line, seg)) in lines.iter().zip(&path.segments).enumerate() {
                 let (w, color): (f64, Hsla) = if !active {
                     (2., alpha(t.muted, 0.9))
-                } else if Some(si) == selected_seg {
+                } else if path_selected || Some(si) == selected_seg {
                     (4., t.accent.into())
                 } else {
                     (3., t.fg.into())

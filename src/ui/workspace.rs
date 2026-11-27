@@ -3,27 +3,29 @@
 mod files;
 mod inspector;
 mod mouse;
+mod panels;
 #[cfg(test)]
 mod tests;
 
 use std::cell::Cell;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui::{
-    App, Bounds, Context, CursorStyle, Div, FocusHandle, Focusable, FontWeight, KeyBinding, MouseButton,
-    ObjectFit, Pixels, SharedString, Stateful, Subscription, Window, actions, canvas, div, img, prelude::*, px,
+    App, Bounds, Context, CursorStyle, FocusHandle, Focusable, FontWeight, KeyBinding, MouseButton,
+    ObjectFit, Pixels, SharedString, Subscription, Window, actions, canvas, div, img, prelude::*, px, relative,
 };
 
 use crate::geom::collision::{self, Report};
 use crate::geom::{Path, Sample, Vec2, vec2};
 use crate::model::{Doc, History};
-use crate::theme::{FONT_MONO, FONT_SANS, RADIUS, Theme, alpha};
+use crate::theme::{FONT_MONO, FONT_SANS, RADIUS, Theme};
 use crate::titlebar::{TitlebarState, window_frame};
 use crate::ui::canvas::{self, Frame, Handle, Selection, View, Xform};
 use crate::ui::fields::Edit;
 use crate::assets::Icon;
-use crate::ui::widgets::{badge, chip_icon, icon, icon_button, label, primary_button, section_title, tooltip};
+use crate::ui::widgets::{badge, chip_icon, icon, icon_button, primary_button, tooltip};
 
 /// Sampling step for drawing and collision checking (mm).
 const ANALYSIS_STEP: f64 = 5.;
@@ -173,6 +175,9 @@ pub struct Workspace {
     canvas_focus: FocusHandle,
     field_focus: FocusHandle,
     edit: Option<Edit>,
+    settings_tab: panels::SettingsTab,
+    collapsed: HashSet<panels::Group>,
+    expanded_paths: HashSet<usize>,
     status: Option<Status>,
     titlebar: TitlebarState,
     _subscriptions: Vec<Subscription>,
@@ -229,6 +234,9 @@ impl Workspace {
             canvas_focus,
             field_focus,
             edit: None,
+            settings_tab: Default::default(),
+            collapsed: HashSet::new(),
+            expanded_paths: HashSet::new(),
             status: None,
             titlebar: TitlebarState::default(),
             _subscriptions: subscriptions,
@@ -292,6 +300,7 @@ impl Workspace {
         }
         let valid = match self.selection {
             Selection::None => true,
+            Selection::Path(path) => path < paths,
             Selection::Waypoint { path, index } => {
                 path < paths && index <= self.doc.paths[path].segments.len()
             }
@@ -391,9 +400,14 @@ impl Workspace {
     }
 
     fn delete_selection(&mut self, _: &DeleteSelection, _: &mut Window, cx: &mut Context<Self>) {
-        match self.selection {
+        self.delete(self.selection, cx);
+    }
+
+    /// Deletes a path, waypoint (with its segment) or shape as one undo step.
+    fn delete(&mut self, what: Selection, cx: &mut Context<Self>) {
+        match what {
             Selection::None => {}
-            Selection::Waypoint { path, index: 0 } => {
+            Selection::Path(path) | Selection::Waypoint { path, index: 0 } => {
                 self.edit_doc(cx, |d| {
                     d.paths.remove(path);
                 });
@@ -610,80 +624,6 @@ impl Workspace {
             })))
     }
 
-    fn render_sidebar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let row = |id: (&'static str, usize), label: String, detail: String, active: bool| -> Stateful<Div> {
-            let t = *t;
-            div()
-                .id(id)
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap_2()
-                .px_2()
-                .h(px(28.))
-                .rounded(RADIUS)
-                .cursor_pointer()
-                .when(active, |d| d.bg(alpha(t.accent, 0.15)).text_color(t.fg))
-                .when(!active, move |d| d.hover(move |s| s.bg(t.elevated)))
-                .child(div().text_sm().font_weight(FontWeight::MEDIUM).truncate().child(label))
-                .child(div().font_family(FONT_MONO).text_size(px(10.)).child(detail))
-        };
-
-        let mut paths = div().flex().flex_col().gap_1();
-        for (i, path) in self.doc.paths.iter().enumerate() {
-            let len = format!("{:.2} m", path.length() / 1000.);
-            paths = paths.child(row(("path", i), path.name.clone(), len, self.active_path == Some(i)).on_click(
-                cx.listener(move |this, _, _, cx| {
-                    this.active_path = Some(i);
-                    this.selection = Selection::Waypoint { path: i, index: 0 };
-                    cx.notify();
-                }),
-            ));
-        }
-        if self.doc.paths.is_empty() {
-            paths = paths.child(label(t, "No paths yet — use New path in the toolbar"));
-        }
-
-        let mut obstacles = div().flex().flex_col().gap_1();
-        for (i, o) in self.doc.map.obstacles.iter().enumerate() {
-            obstacles = obstacles.child(
-                row(("obstacle", i), o.name.clone(), shape_kind(&o.shape).into(), self.selection == Selection::Obstacle(i))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.selection = Selection::Obstacle(i);
-                        cx.notify();
-                    })),
-            );
-        }
-        let mut regions = div().flex().flex_col().gap_1();
-        for (i, r) in self.doc.map.regions.iter().enumerate() {
-            let swatch = canvas::region_color(t, r.color);
-            regions = regions.child(
-                row(("region", i), r.name.clone(), shape_kind(&r.shape).into(), self.selection == Selection::Region(i))
-                    .child(div().size(px(10.)).bg(swatch))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.selection = Selection::Region(i);
-                        cx.notify();
-                    })),
-            );
-        }
-
-        div()
-            .id("sidebar")
-            .flex()
-            .flex_col()
-            .flex_none()
-            .w(px(240.))
-            .h_full()
-            .gap_5()
-            .p_4()
-            .border_r_1()
-            .border_color(t.border)
-            .overflow_y_scroll()
-            .child(div().flex().flex_col().gap_2().child(section_title("Paths", t)).child(paths))
-            .child(div().flex().flex_col().gap_2().child(section_title("Obstacles", t)).child(obstacles))
-            .child(div().flex().flex_col().gap_2().child(section_title("Regions", t)).child(regions))
-    }
-
     fn render_canvas(&mut self, t: &Theme, frame: Frame, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let draw_bar = self.render_draw_bar(t, cx);
         let bounds_cell = self.canvas_bounds.clone();
@@ -814,14 +754,6 @@ impl Workspace {
     }
 }
 
-fn shape_kind(s: &crate::geom::Shape) -> &'static str {
-    match s {
-        crate::geom::Shape::Rect { .. } => "rect",
-        crate::geom::Shape::Circle { .. } => "circle",
-        crate::geom::Shape::Polygon { .. } => "polygon",
-    }
-}
-
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = Theme::get(cx);
@@ -850,16 +782,33 @@ impl Render for Workspace {
         };
 
         let toolbar = self.render_toolbar(&t, cx);
-        let sidebar = self.render_sidebar(&t, cx);
+        let left = div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .w(px(280.))
+            .h_full()
+            .border_r_1()
+            .border_color(t.border)
+            .child(panels::panel("selected", "Selected", Icon::Pointer, &t, self.render_selected(&t, cx)).max_h(relative(0.6)))
+            .child(panels::panel("outline", "Outline", Icon::Layers, &t, self.render_outline(&t, cx)).flex_1().border_t_1().border_color(t.border));
+        let right = div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .w(px(300.))
+            .h_full()
+            .border_l_1()
+            .border_color(t.border)
+            .child(panels::panel("settings", "Settings", Icon::Settings, &t, self.render_settings(&t, cx)).flex_1());
         let canvas = self.render_canvas(&t, frame, cx);
-        let inspector = self.render_inspector(&t, cx);
         let status = self.render_status(&t);
         let content = div()
             .size_full()
             .flex()
             .flex_col()
             .font_family(FONT_SANS)
-            .child(div().flex_1().min_h_0().flex().flex_row().child(sidebar).child(canvas).child(inspector))
+            .child(div().flex_1().min_h_0().flex().flex_row().child(left).child(canvas).child(right))
             .child(status);
 
         div()

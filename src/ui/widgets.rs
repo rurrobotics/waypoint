@@ -90,11 +90,7 @@ pub fn chip_icon(id: impl Into<ElementId>, i: Option<Icon>, text: &str, active: 
         .child(text.to_string())
 }
 
-/// Outline button; `danger` tints the hover red.
-pub fn button(id: impl Into<ElementId>, text: &str, danger: bool, t: &Theme) -> Stateful<Div> {
-    button_icon(id, None, text, danger, t)
-}
-
+/// Outline button with an optional leading icon; `danger` tints the hover red.
 pub fn button_icon(id: impl Into<ElementId>, i: Option<Icon>, text: &str, danger: bool, t: &Theme) -> Stateful<Div> {
     let t = *t;
     pressable(div().id(id))

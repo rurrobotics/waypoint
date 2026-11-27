@@ -116,7 +116,7 @@ impl Workspace {
             .min_by(|a, b| a.1.total_cmp(&b.1));
         if let Some((i, _)) = near {
             self.active_path = Some(i);
-            self.selection = Selection::None;
+            self.selection = Selection::Path(i);
             return;
         }
 

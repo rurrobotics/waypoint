@@ -3,12 +3,12 @@ use gpui::{Context, Div, KeyDownEvent, MouseButton, MouseDownEvent, Window, div,
 use super::Workspace;
 use crate::geom::path::{body_heading, travel_heading};
 use crate::geom::{Path, Pose, Segment, SegmentKind, Shape, Vec2, vec2};
-use crate::model::{Origin, RegionColor};
-use crate::theme::{FONT_MONO, RADIUS, Theme, alpha};
+use crate::model::RegionColor;
+use crate::theme::{FONT_MONO, FONT_SANS, RADIUS, Theme, alpha};
 use crate::ui::canvas::{self, Selection};
 use crate::ui::fields::{Edit, Field, Outcome, Unit, parse_number};
 use crate::assets::Icon;
-use crate::ui::widgets::{button, chip, label, section, section_title, button_icon, chip_icon};
+use crate::ui::widgets::{chip, label, section, section_title, button_icon, chip_icon};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -366,16 +366,16 @@ impl Workspace {
         }
         let boxed = boxed
             .child(div().flex_1())
-            .child(div().text_color(t.muted).text_size(px(10.)).child(unit.suffix()));
+            .child(div().font_family(FONT_SANS).text_color(t.muted).text_size(px(11.)).child(unit.suffix()));
 
         Some(div().flex().items_center().gap_2().child(label).child(boxed))
     }
 
-    fn fields(&self, fields: &[Field], t: &Theme, cx: &mut Context<Self>) -> Div {
+    pub(super) fn fields(&self, fields: &[Field], t: &Theme, cx: &mut Context<Self>) -> Div {
         div().flex().flex_col().gap_1().children(fields.iter().filter_map(|&f| self.field_row(f, t, cx)))
     }
 
-    fn info(t: &Theme, name: &str, value: String) -> Div {
+    pub(super) fn info(t: &Theme, name: &str, value: String) -> Div {
         div()
             .flex()
             .items_center()
@@ -384,7 +384,7 @@ impl Workspace {
             .child(div().font_family(FONT_MONO).text_size(px(12.)).child(value))
     }
 
-    fn render_waypoint(&self, t: &Theme, cx: &mut Context<Self>) -> Option<Div> {
+    pub(super) fn render_waypoint(&self, t: &Theme, cx: &mut Context<Self>) -> Option<Div> {
         let (pi, idx) = self.selected_waypoint()?;
         let path = &self.doc.paths[pi];
         let poses = path.poses();
@@ -504,7 +504,7 @@ impl Workspace {
         Some(s)
     }
 
-    fn render_path(&self, t: &Theme, cx: &mut Context<Self>) -> Option<Div> {
+    pub(super) fn render_path(&self, t: &Theme, cx: &mut Context<Self>) -> Option<Div> {
         let pi = self.active_path?;
         let path = self.doc.paths.get(pi)?;
         Some(
@@ -532,7 +532,7 @@ impl Workspace {
         )
     }
 
-    fn render_shape(&self, t: &Theme, cx: &mut Context<Self>) -> Option<Div> {
+    pub(super) fn render_shape(&self, t: &Theme, cx: &mut Context<Self>) -> Option<Div> {
         let shape = self.selected_shape()?;
         let region = match self.selection {
             Selection::Region(i) => Some((i, self.doc.map.regions[i].color)),
@@ -574,84 +574,5 @@ impl Workspace {
             button_icon("delete-shape", Some(Icon::Trash), "Delete", true, t)
                 .on_click(cx.listener(|this, _, w, cx| this.delete_selection(&super::DeleteSelection, w, cx))),
         ))
-    }
-
-    pub(super) fn render_inspector(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let origin = self.doc.map.origin;
-        let background = self
-            .doc
-            .map
-            .background
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .map_or("None".to_string(), |n| n.to_string_lossy().into_owned());
-
-        let robot = section(t).child(section_title("Robot", t)).child(self.fields(
-            &[Field::RobotLength, Field::RobotWidth, Field::RobotOffsetX, Field::RobotOffsetY, Field::RobotMargin],
-            t,
-            cx,
-        ));
-
-        let map = section(t)
-            .child(section_title("Map", t))
-            .child(self.fields(&[Field::MapName, Field::MapYear, Field::MapWidth, Field::MapHeight], t, cx))
-            .child(
-                div()
-                    .flex()
-                    .gap_1()
-                    .child(
-                        chip("origin-bl", "Origin bottom-left", origin == Origin::BottomLeft, t)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.edit_doc(cx, |d| d.map.origin = Origin::BottomLeft)
-                            })),
-                    )
-                    .child(chip("origin-tl", "Top-left", origin == Origin::TopLeft, t).on_click(
-                        cx.listener(|this, _, _, cx| this.edit_doc(cx, |d| d.map.origin = Origin::TopLeft)),
-                    )),
-            )
-            .child(Self::info(t, "Background", background))
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap_1()
-                    .child(button("bg-set", "Set image", false, t).on_click(cx.listener(
-                        |this, _, w, cx| this.pick_background(w, cx),
-                    )))
-                    .child(button("bg-clear", "Clear", false, t).on_click(cx.listener(
-                        |this, _, _, cx| this.edit_doc(cx, |d| d.map.background = None),
-                    )))
-                    .child(button("map-open", "Open map", false, t).on_click(cx.listener(
-                        |this, _, w, cx| this.open_map(&super::OpenMap, w, cx),
-                    )))
-                    .child(button("map-save", "Save map", false, t).on_click(cx.listener(
-                        |this, _, w, cx| this.save_map(&super::SaveMap, w, cx),
-                    ))),
-            );
-
-        let export = section(t)
-            .child(section_title("Export", t))
-            .child(self.fields(&[Field::SampleStep], t, cx))
-            .child(label(t, "JSON includes segments and samples every step"));
-
-        div()
-            .id("inspector")
-            .flex()
-            .flex_col()
-            .flex_none()
-            .w(px(300.))
-            .h_full()
-            .gap_4()
-            .px_4()
-            .pb_4()
-            .border_l_1()
-            .border_color(t.border)
-            .overflow_y_scroll()
-            .children(self.render_waypoint(t, cx))
-            .children(self.render_shape(t, cx))
-            .children(self.render_path(t, cx))
-            .child(robot)
-            .child(map)
-            .child(export)
     }
 }

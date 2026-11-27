@@ -1,27 +1,52 @@
-// Wired into the UI in a later commit.
-#[allow(dead_code, unused_imports)]
+// Release builds on Windows are GUI apps: no console window.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod export;
-#[allow(dead_code, unused_imports)]
 mod geom;
-#[allow(dead_code, unused_imports)]
 mod model;
+mod theme;
+mod titlebar;
+mod ui;
 
-use gpui::{App, Application, Bounds, WindowBounds, WindowOptions, div, prelude::*, px, size};
+use std::borrow::Cow;
 
-struct Waypoint;
+use gpui::{
+    App, Application, Bounds, TitlebarOptions, WindowBackgroundAppearance, WindowBounds, WindowOptions, prelude::*,
+    px, size,
+};
 
-impl Render for Waypoint {
-    fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
-        div().size_full()
-    }
-}
+use theme::Theme;
+use ui::workspace::{self, Workspace};
 
 fn main() {
     Application::new().run(|cx: &mut App| {
-        let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
+        cx.text_system()
+            .add_fonts(theme::FONTS.iter().map(|f| Cow::Borrowed(*f)).collect())
+            .expect("embedded fonts are valid");
+        workspace::bind_keys(cx);
+
+        let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
         cx.open_window(
-            WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() },
-            |_, cx| cx.new(|_| Waypoint),
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: Some(TitlebarOptions { title: Some("Waypoint".into()), ..Default::default() }),
+                window_min_size: Some(size(px(960.), px(600.))),
+                // Transparent so the client-side shadow shows around the frame.
+                window_background: WindowBackgroundAppearance::Transparent,
+                app_id: Some("waypoint".into()),
+                ..Default::default()
+            },
+            |window, cx| {
+                Theme::sync(window, cx);
+                cx.new(|cx| {
+                    let mut workspace = Workspace::new(window, cx);
+                    // `waypoint strategy.waypoint` opens a project.
+                    if let Some(path) = std::env::args_os().nth(1) {
+                        workspace.load_project(path.into(), cx);
+                    }
+                    workspace
+                })
+            },
         )
         .unwrap();
         cx.activate(true);

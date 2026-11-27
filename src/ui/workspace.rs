@@ -1,0 +1,858 @@
+//! Root view: owns the document, tools, selection, undo history and view.
+
+mod files;
+mod inspector;
+mod mouse;
+#[cfg(test)]
+mod tests;
+
+use std::cell::Cell;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gpui::{
+    App, Bounds, Context, CursorStyle, Div, FocusHandle, Focusable, FontWeight, KeyBinding, MouseButton,
+    ObjectFit, Pixels, Stateful, Subscription, Window, actions, canvas, div, img, prelude::*, px,
+};
+
+use crate::geom::collision::{self, Report};
+use crate::geom::{Path, Sample, Vec2, vec2};
+use crate::model::{Doc, History, RegionColor};
+use crate::theme::{FONT_MONO, FONT_SANS, Theme};
+use crate::titlebar::{TitlebarState, window_frame};
+use crate::ui::canvas::{self, Frame, Handle, Selection, View, Xform};
+use crate::ui::fields::Edit;
+use crate::ui::widgets::{badge, button, chip, mono_label, section_title, solid_button};
+
+/// Sampling step for drawing and collision checking (mm).
+const ANALYSIS_STEP: f64 = 5.;
+
+actions!(
+    waypoint,
+    [
+        Undo,
+        Redo,
+        NewProject,
+        OpenProject,
+        SaveProject,
+        SaveProjectAs,
+        OpenMap,
+        SaveMap,
+        ExportJson,
+        DeleteSelection,
+        Cancel,
+        FinishShape,
+        FitView,
+        ToolSelect,
+        ToolWaypoint,
+        ToolObstacle,
+        ToolRegion,
+        ToolMeasure,
+        Quit,
+    ]
+);
+
+pub fn bind_keys(cx: &mut App) {
+    let ws = Some("Workspace");
+    let canvas = Some("Canvas");
+    cx.bind_keys([
+        KeyBinding::new("secondary-z", Undo, ws),
+        KeyBinding::new("secondary-shift-z", Redo, ws),
+        KeyBinding::new("ctrl-y", Redo, ws),
+        KeyBinding::new("secondary-n", NewProject, ws),
+        KeyBinding::new("secondary-o", OpenProject, ws),
+        KeyBinding::new("secondary-s", SaveProject, ws),
+        KeyBinding::new("secondary-shift-s", SaveProjectAs, ws),
+        KeyBinding::new("secondary-e", ExportJson, ws),
+        KeyBinding::new("secondary-q", Quit, None),
+        KeyBinding::new("v", ToolSelect, canvas),
+        KeyBinding::new("w", ToolWaypoint, canvas),
+        KeyBinding::new("o", ToolObstacle, canvas),
+        KeyBinding::new("r", ToolRegion, canvas),
+        KeyBinding::new("m", ToolMeasure, canvas),
+        KeyBinding::new("f", FitView, canvas),
+        KeyBinding::new("delete", DeleteSelection, canvas),
+        KeyBinding::new("backspace", DeleteSelection, canvas),
+        KeyBinding::new("escape", Cancel, canvas),
+        KeyBinding::new("enter", FinishShape, canvas),
+    ]);
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tool {
+    Select,
+    Waypoint,
+    Obstacle,
+    Region,
+    Measure,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShapeTool {
+    Rect,
+    Circle,
+    Polygon,
+}
+
+/// Segment appended by the waypoint tool.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SegTool {
+    Straight,
+    TurnInPlace,
+    TurnArc,
+    Hermite,
+}
+
+const SNAP_STEPS: [f64; 6] = [0., 1., 5., 10., 50., 100.];
+
+enum Drag {
+    None,
+    Pan { last: Vec2 },
+    Handle { path: usize, handle: Handle },
+    Object { last: Vec2 },
+    Create { start: Vec2, current: Vec2 },
+    Measure,
+    Scrub { field: crate::ui::fields::Field, start_x: f64, start: f64 },
+}
+
+struct Analysis {
+    revision: u64,
+    active: Option<usize>,
+    samples: Vec<Vec<Sample>>,
+    report: Option<Report>,
+}
+
+struct Status {
+    text: String,
+    error: bool,
+}
+
+pub struct Workspace {
+    doc: Doc,
+    history: History<Doc>,
+    /// Document before the current drag, recorded on release if it changed.
+    drag_snapshot: Option<Doc>,
+    project_path: Option<PathBuf>,
+    map_file: Option<PathBuf>,
+    dirty: bool,
+    revision: u64,
+    analysis: Option<Analysis>,
+
+    tool: Tool,
+    shape_tool: ShapeTool,
+    seg_tool: SegTool,
+    reverse: bool,
+    auto_turn: bool,
+    snap: f64,
+    show_sweep: bool,
+    region_color: RegionColor,
+    /// Sample spacing for exports (mm).
+    export_step: f64,
+
+    active_path: Option<usize>,
+    selection: Selection,
+    drag: Drag,
+    polygon: Vec<Vec2>,
+    measure: Option<(Vec2, Vec2)>,
+    hover: Option<Vec2>,
+    modifiers: gpui::Modifiers,
+
+    view: View,
+    auto_fit: bool,
+    last_canvas_size: Vec2,
+    canvas_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
+
+    focus: FocusHandle,
+    canvas_focus: FocusHandle,
+    field_focus: FocusHandle,
+    edit: Option<Edit>,
+    status: Option<Status>,
+    titlebar: TitlebarState,
+    _subscriptions: Vec<Subscription>,
+}
+
+impl Focusable for Workspace {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.canvas_focus.clone()
+    }
+}
+
+impl Workspace {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let field_focus = cx.focus_handle();
+        let subscriptions = vec![
+            cx.on_blur(&field_focus, window, |this, _, cx| this.commit_edit(cx)),
+            cx.observe_window_appearance(window, |_, window, cx| {
+                if Theme::sync(window, cx) {
+                    cx.notify();
+                }
+            }),
+        ];
+        let canvas_focus = cx.focus_handle();
+        window.focus(&canvas_focus);
+
+        Self {
+            doc: Doc::default(),
+            history: History::new(200),
+            drag_snapshot: None,
+            project_path: None,
+            map_file: None,
+            dirty: false,
+            revision: 0,
+            analysis: None,
+            tool: Tool::Waypoint,
+            shape_tool: ShapeTool::Rect,
+            seg_tool: SegTool::Straight,
+            reverse: false,
+            auto_turn: true,
+            snap: 10.,
+            show_sweep: true,
+            region_color: RegionColor::Secondary,
+            export_step: 10.,
+            active_path: None,
+            selection: Selection::None,
+            drag: Drag::None,
+            polygon: Vec::new(),
+            measure: None,
+            hover: None,
+            modifiers: Default::default(),
+            view: View::default(),
+            auto_fit: true,
+            last_canvas_size: Vec2::ZERO,
+            canvas_bounds: Rc::new(Cell::new(None)),
+            focus: cx.focus_handle(),
+            canvas_focus,
+            field_focus,
+            edit: None,
+            status: None,
+            titlebar: TitlebarState::default(),
+            _subscriptions: subscriptions,
+        }
+    }
+
+    // ---- document bookkeeping ------------------------------------------------
+
+    /// Call after every document change.
+    fn changed(&mut self, cx: &mut Context<Self>) {
+        for path in &mut self.doc.paths {
+            path.fix_auto_turns();
+        }
+        self.clamp_selection();
+        self.revision += 1;
+        self.dirty = true;
+        cx.notify();
+    }
+
+    /// Runs `f` on the document as one undoable step.
+    fn edit_doc(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut Doc)) {
+        let before = self.doc.clone();
+        f(&mut self.doc);
+        if self.doc != before {
+            self.history.push(before);
+            self.changed(cx);
+        }
+    }
+
+    fn begin_drag_edit(&mut self) {
+        self.drag_snapshot = Some(self.doc.clone());
+    }
+
+    /// Records the drag as one undo step; returns true if it changed anything.
+    fn end_drag_edit(&mut self) -> bool {
+        if let Some(before) = self.drag_snapshot.take()
+            && before != self.doc
+        {
+            self.history.push(before);
+            self.dirty = true;
+            return true;
+        }
+        false
+    }
+
+    /// Re-derives everything from the document without marking it dirty
+    /// (used while dragging; the undo step is recorded on release).
+    fn refresh(&mut self, cx: &mut Context<Self>) {
+        for path in &mut self.doc.paths {
+            path.fix_auto_turns();
+        }
+        self.clamp_selection();
+        self.revision += 1;
+        cx.notify();
+    }
+
+    fn clamp_selection(&mut self) {
+        let paths = self.doc.paths.len();
+        if self.active_path.is_some_and(|i| i >= paths) {
+            self.active_path = paths.checked_sub(1);
+        }
+        let valid = match self.selection {
+            Selection::None => true,
+            Selection::Waypoint { path, index } => {
+                path < paths && index <= self.doc.paths[path].segments.len()
+            }
+            Selection::Obstacle(i) => i < self.doc.map.obstacles.len(),
+            Selection::Region(i) => i < self.doc.map.regions.len(),
+        };
+        if !valid {
+            self.selection = Selection::None;
+        }
+    }
+
+    fn set_status(&mut self, text: impl Into<String>, error: bool) {
+        self.status = Some(Status { text: text.into(), error });
+    }
+
+    fn ensure_analysis(&mut self) -> &Analysis {
+        let stale = self
+            .analysis
+            .as_ref()
+            .is_none_or(|a| a.revision != self.revision || a.active != self.active_path);
+        if stale {
+            let samples: Vec<Vec<Sample>> = self.doc.paths.iter().map(|p| p.sample(ANALYSIS_STEP)).collect();
+            let obstacles: Vec<_> = self.doc.map.obstacles.iter().map(|o| &o.shape).collect();
+            let report = self.active_path.and_then(|i| {
+                Some(collision::check(
+                    samples.get(i)?,
+                    self.doc.paths[i].segments.len(),
+                    &self.doc.robot,
+                    self.doc.map.size(),
+                    &obstacles,
+                ))
+            });
+            self.analysis = Some(Analysis { revision: self.revision, active: self.active_path, samples, report });
+        }
+        self.analysis.as_ref().unwrap()
+    }
+
+    fn xform(&self) -> Option<Xform> {
+        let b = self.canvas_bounds.get()?;
+        (self.view.zoom > 0.).then(|| Xform::new(self.view, canvas::to_vec(b.origin), &self.doc))
+    }
+
+    fn active(&self) -> Option<&Path> {
+        self.active_path.and_then(|i| self.doc.paths.get(i))
+    }
+
+    // ---- actions ---------------------------------------------------------------
+
+    fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(prev) = self.history.undo(self.doc.clone()) {
+            self.doc = prev;
+            self.changed(cx);
+        }
+    }
+
+    fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(next) = self.history.redo(self.doc.clone()) {
+            self.doc = next;
+            self.changed(cx);
+        }
+    }
+
+    fn set_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
+        self.tool = tool;
+        self.polygon.clear();
+        self.measure = None;
+        self.drag = Drag::None;
+        cx.notify();
+    }
+
+    fn delete_selection(&mut self, _: &DeleteSelection, _: &mut Window, cx: &mut Context<Self>) {
+        match self.selection {
+            Selection::None => {}
+            Selection::Waypoint { path, index: 0 } => {
+                self.edit_doc(cx, |d| {
+                    d.paths.remove(path);
+                });
+                self.active_path = None;
+                self.selection = Selection::None;
+                self.set_status("Path deleted", false);
+            }
+            Selection::Waypoint { path, index } => {
+                let mut new_index = index - 1;
+                self.edit_doc(cx, |d| {
+                    let segs = &mut d.paths[path].segments;
+                    let seg = segs.remove(index - 1);
+                    // A straight takes its auto turn with it.
+                    let prev_auto = index >= 2
+                        && matches!(segs[index - 2].kind, crate::geom::SegmentKind::Turn { auto: true, .. });
+                    if matches!(seg.kind, crate::geom::SegmentKind::Straight { .. }) && prev_auto {
+                        segs.remove(index - 2);
+                        new_index -= 1;
+                    }
+                });
+                self.selection = Selection::Waypoint { path, index: new_index };
+            }
+            Selection::Obstacle(i) => {
+                self.edit_doc(cx, |d| {
+                    d.map.obstacles.remove(i);
+                });
+                self.selection = Selection::None;
+            }
+            Selection::Region(i) => {
+                self.edit_doc(cx, |d| {
+                    d.map.regions.remove(i);
+                });
+                self.selection = Selection::None;
+            }
+        }
+        cx.notify();
+    }
+
+    fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.polygon.is_empty() || self.measure.is_some() || !matches!(self.drag, Drag::None) {
+            self.polygon.clear();
+            self.measure = None;
+            self.drag = Drag::None;
+        } else {
+            self.selection = Selection::None;
+        }
+        cx.notify();
+    }
+
+    fn fit_view(&mut self, _: &FitView, _: &mut Window, cx: &mut Context<Self>) {
+        self.auto_fit = true;
+        self.last_canvas_size = Vec2::ZERO;
+        cx.notify();
+    }
+
+    // ---- rendering -------------------------------------------------------------
+
+    fn render_toolbar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let tool_chip = |id: &'static str, label: &str, tool: Tool, cx: &mut Context<Self>| {
+            chip(id, label, self.tool == tool, t.foreground, t.background, t)
+                .on_click(cx.listener(move |this, _, _, cx| this.set_tool(tool, cx)))
+        };
+        let sub = |id: &'static str, label: &str, active: bool| chip(id, label, active, t.tertiary, t.tertiary_fg, t);
+
+        let mut subtools = div().flex().items_center().gap_1();
+        match self.tool {
+            Tool::Waypoint => {
+                for (id, label, s) in [
+                    ("seg-straight", "Straight", SegTool::Straight),
+                    ("seg-turn", "Turn in place", SegTool::TurnInPlace),
+                    ("seg-arc", "Turn arc", SegTool::TurnArc),
+                    ("seg-hermite", "Hermite", SegTool::Hermite),
+                ] {
+                    subtools = subtools.child(
+                        sub(id, label, self.seg_tool == s)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.seg_tool = s;
+                                cx.notify();
+                            })),
+                    );
+                }
+                subtools = subtools
+                    .child(div().w(px(8.)))
+                    .child(chip("reverse", "Reverse", self.reverse, t.secondary, t.secondary_fg, t).on_click(
+                        cx.listener(|this, _, _, cx| {
+                            this.reverse = !this.reverse;
+                            cx.notify();
+                        }),
+                    ))
+                    .child(chip("auto-turn", "Auto turn", self.auto_turn, t.secondary, t.secondary_fg, t).on_click(
+                        cx.listener(|this, _, _, cx| {
+                            this.auto_turn = !this.auto_turn;
+                            cx.notify();
+                        }),
+                    ))
+                    .child(button("new-path", "+ New path", t.primary, t.primary_fg, t).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.active_path = None;
+                            this.selection = Selection::None;
+                            this.set_status("Click on the table to place the start of the new path", false);
+                            cx.notify();
+                        },
+                    )));
+            }
+            Tool::Obstacle | Tool::Region => {
+                for (id, label, s) in [
+                    ("shape-rect", "Rect", ShapeTool::Rect),
+                    ("shape-circle", "Circle", ShapeTool::Circle),
+                    ("shape-poly", "Polygon", ShapeTool::Polygon),
+                ] {
+                    subtools = subtools.child(sub(id, label, self.shape_tool == s).on_click(cx.listener(
+                        move |this, _, _, cx| {
+                            this.shape_tool = s;
+                            this.polygon.clear();
+                            cx.notify();
+                        },
+                    )));
+                }
+                if self.tool == Tool::Region {
+                    subtools = subtools.child(div().w(px(8.)));
+                    for (i, c) in RegionColor::ALL.into_iter().enumerate() {
+                        let color = canvas::region_color(t, c);
+                        let active = self.region_color == c;
+                        subtools = subtools.child(
+                            div()
+                                .id(("region-color", i))
+                                .size(px(22.))
+                                .bg(color)
+                                .border_2()
+                                .border_color(if active { t.foreground } else { color })
+                                .when(active, |d| d.border_4())
+                                .cursor_pointer()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.region_color = c;
+                                    cx.notify();
+                                })),
+                        );
+                    }
+                }
+            }
+            Tool::Select | Tool::Measure => {}
+        }
+
+        let snap_label =
+            if self.snap == 0. { "Snap off".to_string() } else { format!("Snap {}", canvas::format_mm(self.snap)) };
+
+        div()
+            .flex()
+            .flex_none()
+            .flex_wrap()
+            .items_center()
+            .gap_1()
+            .px_4()
+            .py_2()
+            .border_b_2()
+            .border_color(t.border)
+            .child(tool_chip("tool-select", "Select V", Tool::Select, cx))
+            .child(tool_chip("tool-waypoint", "Waypoint W", Tool::Waypoint, cx))
+            .child(tool_chip("tool-obstacle", "Obstacle O", Tool::Obstacle, cx))
+            .child(tool_chip("tool-region", "Region R", Tool::Region, cx))
+            .child(tool_chip("tool-measure", "Measure M", Tool::Measure, cx))
+            .child(div().w(px(2.)).h(px(22.)).mx_2().bg(t.border))
+            .child(subtools)
+            .child(div().flex_1())
+            .child(chip("snap", &snap_label, self.snap > 0., t.foreground, t.background, t).on_click(cx.listener(
+                |this, _, _, cx| {
+                    let i = SNAP_STEPS.iter().position(|&s| s == this.snap).unwrap_or(0);
+                    this.snap = SNAP_STEPS[(i + 1) % SNAP_STEPS.len()];
+                    cx.notify();
+                },
+            )))
+            .child(chip("sweep", "Sweep", self.show_sweep, t.foreground, t.background, t).on_click(cx.listener(
+                |this, _, _, cx| {
+                    this.show_sweep = !this.show_sweep;
+                    cx.notify();
+                },
+            )))
+            .child(button("fit", "Fit F", t.foreground, t.background, t).on_click(cx.listener(|this, _, w, cx| {
+                this.fit_view(&FitView, w, cx)
+            })))
+    }
+
+    fn render_file_actions(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        div()
+            .flex()
+            .items_center()
+            .gap_1()
+            .child(button("file-new", "New", t.foreground, t.background, t).on_click(cx.listener(|this, _, w, cx| {
+                this.new_project(&NewProject, w, cx)
+            })))
+            .child(button("file-open", "Open", t.foreground, t.background, t).on_click(cx.listener(|this, _, w, cx| {
+                this.open_project(&OpenProject, w, cx)
+            })))
+            .child(button("file-save", "Save", t.foreground, t.background, t).on_click(cx.listener(|this, _, w, cx| {
+                this.save_project(&SaveProject, w, cx)
+            })))
+            .child(
+                solid_button("file-export", "Export JSON", t.secondary, t.secondary_fg, t)
+                    .on_click(cx.listener(|this, _, w, cx| this.export_json(&ExportJson, w, cx))),
+            )
+    }
+
+    fn render_sidebar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let row = |id: (&'static str, usize), label: String, detail: String, active: bool| -> Stateful<Div> {
+            let t = *t;
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .px_2()
+                .h(px(28.))
+                .border_2()
+                .border_color(t.border)
+                .cursor_pointer()
+                .when(active, |d| d.bg(t.foreground).text_color(t.background))
+                .when(!active, move |d| d.hover(move |s| s.bg(t.secondary).text_color(t.secondary_fg)))
+                .child(div().text_sm().font_weight(FontWeight::MEDIUM).truncate().child(label))
+                .child(div().font_family(FONT_MONO).text_size(px(10.)).child(detail))
+        };
+
+        let mut paths = div().flex().flex_col().gap_1();
+        for (i, path) in self.doc.paths.iter().enumerate() {
+            let len = format!("{:.2} M", path.length() / 1000.);
+            paths = paths.child(row(("path", i), path.name.clone(), len, self.active_path == Some(i)).on_click(
+                cx.listener(move |this, _, _, cx| {
+                    this.active_path = Some(i);
+                    this.selection = Selection::Waypoint { path: i, index: 0 };
+                    cx.notify();
+                }),
+            ));
+        }
+        if self.doc.paths.is_empty() {
+            paths = paths.child(mono_label(t, "NO PATHS YET — PICK WAYPOINT AND CLICK THE TABLE"));
+        }
+
+        let mut obstacles = div().flex().flex_col().gap_1();
+        for (i, o) in self.doc.map.obstacles.iter().enumerate() {
+            obstacles = obstacles.child(
+                row(("obstacle", i), o.name.clone(), shape_kind(&o.shape).into(), self.selection == Selection::Obstacle(i))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.selection = Selection::Obstacle(i);
+                        cx.notify();
+                    })),
+            );
+        }
+        let mut regions = div().flex().flex_col().gap_1();
+        for (i, r) in self.doc.map.regions.iter().enumerate() {
+            let swatch = canvas::region_color(t, r.color);
+            regions = regions.child(
+                row(("region", i), r.name.clone(), shape_kind(&r.shape).into(), self.selection == Selection::Region(i))
+                    .child(div().size(px(10.)).bg(swatch))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.selection = Selection::Region(i);
+                        cx.notify();
+                    })),
+            );
+        }
+
+        div()
+            .id("sidebar")
+            .flex()
+            .flex_col()
+            .flex_none()
+            .w(px(240.))
+            .h_full()
+            .gap_5()
+            .p_4()
+            .border_r_2()
+            .border_color(t.border)
+            .overflow_y_scroll()
+            .child(div().flex().flex_col().gap_2().child(section_title("Paths", t.primary)).child(paths))
+            .child(div().flex().flex_col().gap_2().child(section_title("Obstacles", t.foreground)).child(obstacles))
+            .child(div().flex().flex_col().gap_2().child(section_title("Regions", t.secondary)).child(regions))
+    }
+
+    fn render_canvas(&mut self, t: &Theme, frame: Frame, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let bounds_cell = self.canvas_bounds.clone();
+        let view = self.view;
+        let size = self.doc.map.size() * view.zoom;
+        let background = self.doc.map.background.clone().filter(|_| view.zoom > 0.);
+        let cursor = match (&self.drag, self.tool) {
+            (Drag::Pan { .. }, _) => CursorStyle::ClosedHand,
+            (Drag::Handle { .. } | Drag::Object { .. }, _) => CursorStyle::ClosedHand,
+            (_, Tool::Select) => CursorStyle::Arrow,
+            _ => CursorStyle::Crosshair,
+        };
+
+        div()
+            .id("canvas")
+            .flex_1()
+            .h_full()
+            .min_w_0()
+            .relative()
+            .overflow_hidden()
+            .bg(t.canvas)
+            .cursor(cursor)
+            .track_focus(&self.canvas_focus)
+            .key_context("Canvas")
+            .on_mouse_down(MouseButton::Left, cx.listener(Self::canvas_mouse_down))
+            .on_mouse_down(MouseButton::Middle, cx.listener(Self::canvas_mouse_down))
+            .on_mouse_down(MouseButton::Right, cx.listener(Self::canvas_mouse_down))
+            .on_scroll_wheel(cx.listener(Self::scroll))
+            .when(view.zoom > 0., |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .left(px(view.pan.x as f32))
+                        .top(px(view.pan.y as f32))
+                        .w(px(size.x as f32))
+                        .h(px(size.y as f32))
+                        .bg(t.table),
+                )
+            })
+            .when_some(background, |d, bg| {
+                d.child(
+                    img(bg)
+                        .absolute()
+                        .left(px(view.pan.x as f32))
+                        .top(px(view.pan.y as f32))
+                        .w(px(size.x as f32))
+                        .h(px(size.y as f32))
+                        .object_fit(ObjectFit::Fill),
+                )
+            })
+            .child(
+                canvas(
+                    move |bounds, window, _| {
+                        if bounds_cell.get() != Some(bounds) {
+                            bounds_cell.set(Some(bounds));
+                            window.refresh();
+                        }
+                    },
+                    move |bounds, (), window, cx| canvas::paint(&frame, bounds, window, cx),
+                )
+                .absolute()
+                .size_full(),
+            )
+    }
+
+    fn render_status(&mut self, t: &Theme) -> impl IntoElement + use<> {
+        let hover = self.hover.map(|p| format!("X {:>6}  Y {:>6}", canvas::format_mm(p.x), canvas::format_mm(p.y)));
+        let hint = match (self.tool, self.active_path.is_some()) {
+            (Tool::Select, _) => "Drag handles or shapes · wheel zooms · right-drag pans",
+            (Tool::Waypoint, false) => "Click to place the start of a new path",
+            (Tool::Waypoint, true) => "Click to append · Shift snaps 15° · Alt disables grid snap",
+            (Tool::Obstacle | Tool::Region, _) => match self.shape_tool {
+                ShapeTool::Polygon => "Click vertices · Enter or double-click closes (convex only)",
+                _ => "Drag to draw",
+            },
+            (Tool::Measure, _) => "Drag to measure",
+        };
+        let zoom = format!("{:.0}%", self.view.zoom * 100.);
+        let active = self.active_path;
+        let length = self.active().map(|p| format!("LENGTH {:.3} M", p.length() / 1000.));
+        let gaps = self.active().map(|p| p.discontinuities().len()).unwrap_or(0);
+        let a = self.ensure_analysis();
+        let (events, clearance) = match &a.report {
+            Some(r) => (r.events, r.min_clearance.map(|(c, _)| c)),
+            None => (0, None),
+        };
+
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_3()
+            .px_4()
+            .h(px(30.))
+            .border_t_2()
+            .border_color(t.border)
+            .font_family(FONT_MONO)
+            .text_size(px(11.))
+            .child(div().w(px(150.)).child(hover.unwrap_or_default()))
+            .child(div().text_color(t.ink_muted).truncate().child(hint))
+            .child(div().flex_1())
+            .when_some(self.status.as_ref(), |d, s| {
+                d.child(div().truncate().text_color(if s.error { t.primary } else { t.foreground }).child(s.text.clone()))
+            })
+            .when(active.is_some(), |d| {
+                d.children(length)
+                    .child(badge(
+                        if events == 0 { "CLEAR".into() } else { format!("{events} COLLISION{}", if events == 1 { "" } else { "S" }) },
+                        events > 0,
+                        t.primary,
+                        t.primary_fg,
+                        t,
+                    ))
+                    .when_some(clearance, |d, c| d.child(format!("MIN CLEARANCE {} MM", canvas::format_mm(c))))
+                    .when(gaps > 0, |d| {
+                        d.child(badge(format!("{gaps} HEADING JUMP{}", if gaps == 1 { "" } else { "S" }), true, t.secondary, t.secondary_fg, t))
+                    })
+            })
+            .child(div().text_color(t.ink_muted).child(zoom))
+    }
+}
+
+fn shape_kind(s: &crate::geom::Shape) -> &'static str {
+    match s {
+        crate::geom::Shape::Rect { .. } => "RECT",
+        crate::geom::Shape::Circle { .. } => "CIRCLE",
+        crate::geom::Shape::Polygon { .. } => "POLY",
+    }
+}
+
+impl Render for Workspace {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = Theme::get(cx);
+
+        if let Some(b) = self.canvas_bounds.get() {
+            let size = vec2(f32::from(b.size.width) as f64, f32::from(b.size.height) as f64);
+            if self.auto_fit && size != self.last_canvas_size && size.x > 0. && size.y > 0. {
+                self.view = View::fit(self.doc.map.size(), size);
+            }
+            self.last_canvas_size = size;
+        }
+
+        let preview = self.preview();
+        self.ensure_analysis();
+        let analysis = self.analysis.as_ref().unwrap();
+        let frame = Frame {
+            theme: t,
+            doc: self.doc.clone(),
+            view: self.view,
+            active_path: self.active_path,
+            selection: self.selection,
+            samples: analysis.samples.clone(),
+            report: analysis.report.clone(),
+            show_sweep: self.show_sweep,
+            preview,
+        };
+
+        let name = self
+            .project_path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().to_uppercase())
+            .unwrap_or_else(|| "UNTITLED".into());
+        let subtitle = format!(
+            "{name}{} · {} {}",
+            if self.dirty { " *" } else { "" },
+            self.doc.map.name.to_uppercase(),
+            self.doc.map.year
+        );
+
+        let actions = self.render_file_actions(&t, cx);
+        let toolbar = self.render_toolbar(&t, cx);
+        let sidebar = self.render_sidebar(&t, cx);
+        let canvas = self.render_canvas(&t, frame, cx);
+        let inspector = self.render_inspector(&t, cx);
+        let status = self.render_status(&t);
+        let content = div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .font_family(FONT_SANS)
+            .child(toolbar)
+            .child(div().flex_1().min_h_0().flex().flex_row().child(sidebar).child(canvas).child(inspector))
+            .child(status);
+
+        div()
+            .size_full()
+            .track_focus(&self.focus)
+            .key_context("Workspace")
+            .on_action(cx.listener(Self::undo))
+            .on_action(cx.listener(Self::redo))
+            .on_action(cx.listener(Self::new_project))
+            .on_action(cx.listener(Self::open_project))
+            .on_action(cx.listener(Self::save_project))
+            .on_action(cx.listener(Self::save_project_as))
+            .on_action(cx.listener(Self::open_map))
+            .on_action(cx.listener(Self::save_map))
+            .on_action(cx.listener(Self::export_json))
+            .on_action(cx.listener(Self::delete_selection))
+            .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(Self::finish_shape))
+            .on_action(cx.listener(Self::fit_view))
+            .on_action(cx.listener(|this, _: &ToolSelect, _, cx| this.set_tool(Tool::Select, cx)))
+            .on_action(cx.listener(|this, _: &ToolWaypoint, _, cx| this.set_tool(Tool::Waypoint, cx)))
+            .on_action(cx.listener(|this, _: &ToolObstacle, _, cx| this.set_tool(Tool::Obstacle, cx)))
+            .on_action(cx.listener(|this, _: &ToolRegion, _, cx| this.set_tool(Tool::Region, cx)))
+            .on_action(cx.listener(|this, _: &ToolMeasure, _, cx| this.set_tool(Tool::Measure, cx)))
+            .on_action(|_: &Quit, _, cx| cx.quit())
+            .on_mouse_move(cx.listener(Self::mouse_move))
+            .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
+            .on_mouse_up(MouseButton::Middle, cx.listener(Self::mouse_up))
+            .on_mouse_up(MouseButton::Right, cx.listener(Self::mouse_up))
+            .on_modifiers_changed(cx.listener(|this, e: &gpui::ModifiersChangedEvent, _, cx| {
+                this.modifiers = e.modifiers;
+                cx.notify();
+            }))
+            .child(window_frame(window, &t, &self.titlebar, subtitle, actions, content))
+    }
+}

@@ -95,7 +95,9 @@ drags. Keep it that way; don't reintroduce tool modes.
 `src/ui/workspace/tests.rs` drives the real `Workspace` on gpui's headless test
 platform (dev-dependency `gpui` with `test-support`). It simulates clicks,
 drags and keystrokes at table coordinates through `at()`, `click()`, `drag()`.
-Add a test there for new interactions. Tests never touch the user's config:
+Add a test there for new interactions. Press shortcuts with
+`secondary-…` (`Cmd` on macOS, `Ctrl` elsewhere), like the bindings: `ctrl-z`
+fails on the macOS CI runner. Tests never touch the user's config:
 `Layout::load/save` are no-ops under `cfg(test)` and `templates_dir` is `None`.
 
 Visual check on Linux: GNOME blocks input injection, but screenshots work

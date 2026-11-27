@@ -128,14 +128,14 @@ fn dragging_a_waypoint_is_one_undo_step(cx: &mut TestAppContext) {
         assert!(w.doc.paths[0].discontinuities().is_empty());
     });
 
-    cx.simulate_keystrokes("ctrl-z");
+    cx.simulate_keystrokes("secondary-z");
     cx.run_until_parked();
     ws.read_with(cx, |w, _| {
         let SegmentKind::Straight { to } = w.doc.paths[0].segments[2].kind else { panic!() };
         assert_eq!(to, vec2(1200., 1000.));
     });
 
-    cx.simulate_keystrokes("ctrl-shift-z");
+    cx.simulate_keystrokes("secondary-shift-z");
     cx.run_until_parked();
     ws.read_with(cx, |w, _| {
         let SegmentKind::Straight { to } = w.doc.paths[0].segments[2].kind else { panic!() };
@@ -184,7 +184,7 @@ fn editing_a_field_by_typing(cx: &mut TestAppContext) {
         assert_eq!(w.doc.robot.length, 420.);
         assert!(w.edit.is_none());
     });
-    cx.simulate_keystrokes("ctrl-z");
+    cx.simulate_keystrokes("secondary-z");
     cx.run_until_parked();
     ws.read_with(cx, |w, _| assert_eq!(w.doc.robot.length, 300.));
 }
@@ -290,7 +290,7 @@ fn new_project_from_a_saved_template(cx: &mut TestAppContext) {
         w.dirty = false; // skip the discard prompt
     });
 
-    cx.simulate_keystrokes("ctrl-n");
+    cx.simulate_keystrokes("secondary-n");
     let template = ws.read_with(cx, |w, _| {
         assert!(w.new_menu);
         let all = crate::model::template::list(w.templates_dir.as_deref());
@@ -408,7 +408,7 @@ fn rect_handles_resize_and_rotate(cx: &mut TestAppContext) {
     assert!((rotation.to_degrees() + 90.).abs() < 0.5, "{}", rotation.to_degrees());
 
     // Each drag is one undo step.
-    cx.simulate_keystrokes("ctrl-z");
+    cx.simulate_keystrokes("secondary-z");
     cx.run_until_parked();
     assert!(matches!(obstacle(&ws, cx), Shape::Rect { rotation, .. } if rotation == 0.));
 }
@@ -511,7 +511,7 @@ fn hidden_shapes_cannot_be_clicked_and_groups_toggle_together(cx: &mut TestAppCo
     assert_eq!(hidden(&ws, cx), [false, false]);
 
     // Visibility changes are undoable.
-    cx.simulate_keystrokes("ctrl-z");
+    cx.simulate_keystrokes("secondary-z");
     assert_eq!(hidden(&ws, cx), [true, true]);
 }
 
@@ -527,7 +527,7 @@ fn side_docks_collapse_and_reopen(cx: &mut TestAppContext) {
     };
     let open = canvas_width(&ws, cx);
 
-    cx.simulate_keystrokes("ctrl-b");
+    cx.simulate_keystrokes("secondary-b");
     let left_closed = canvas_width(&ws, cx);
     assert!(left_closed > open);
     ws.read_with(cx, |w, _| {
@@ -535,9 +535,9 @@ fn side_docks_collapse_and_reopen(cx: &mut TestAppContext) {
         assert_eq!(w.layout.left.panels, [PanelId::Selected, PanelId::Outline], "panels stay assigned");
     });
 
-    cx.simulate_keystrokes("ctrl-alt-b");
+    cx.simulate_keystrokes("secondary-alt-b");
     assert!(canvas_width(&ws, cx) > left_closed);
 
-    cx.simulate_keystrokes("ctrl-b ctrl-alt-b");
+    cx.simulate_keystrokes("secondary-b secondary-alt-b");
     assert_eq!(canvas_width(&ws, cx), open);
 }

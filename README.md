@@ -32,13 +32,6 @@ It's written in Rust with [GPUI](https://www.gpui.rs/) and runs on Linux
   (`assets/templates/default.json`), and **New** lists every shipped template
   plus your own, saved with **Save as template** (table, obstacles, regions,
   background and robot).
-- **No modes.** The canvas always selects and drags. **New path**,
-  **New obstacle**, **New region** and **Measure** are one-shot actions.
-- **Dockable panels.** *Selected* (properties of what's selected), *Outline*
-  (everything on the table) and *Settings* (Robot / Map / Project tabs). Drag a
-  panel by its header to the other side or reorder it; drag the edges to resize.
-  The panel icons at the right of the toolbar (`Ctrl+B` / `Ctrl+Alt+B`) collapse
-  the left or right dock to give the table more room. The layout is remembered.
 - Undo/redo, grid snapping, light and dark theme following the system.
 
 ## Install
@@ -82,6 +75,7 @@ cargo test                     # geometry, model and headless UI tests
 | Edit | Drag waypoints, tangent handles (Hermite), angle and radius handles (turns) and shapes. A selected obstacle or region has handles too: rectangle corners resize (`Shift` keeps it square), a circle's edge sets the radius, polygon vertices move (staying convex), and the round knob rotates rectangles and polygons (`Shift` snaps to 15°). Or type values in the *Selected* panel: click a field, or drag its label to scrub (Shift ×10, Alt ÷10). Arrow keys step. |
 | Snap | Toolbar magnet cycles the grid (off, 1, 5, 10, 50, 100 mm). `Shift` snaps angles to 15°, `Alt` disables grid snap. |
 | View | Wheel zooms, right- or middle-drag pans, `F` fits the table |
+| Panels | Drag a panel by its header to the other side or to reorder it, drag the edges to resize. The panel icons at the right of the toolbar (`Ctrl+B` / `Ctrl+Alt+B`) collapse the left or right side. The layout is remembered. |
 | Hide | Hover a row in *Outline* and click the eye, or the eye on a group header to hide or show all paths, obstacles or regions. Hidden items stay in the project and the export, and hidden obstacles still count for collisions. |
 | Delete | `Delete`/`Backspace`, the trash button in *Selected*, or hover a row in *Outline* |
 | Files | `Ctrl+N` new from template, `Ctrl+O` open, `Ctrl+S` save, `Ctrl+Shift+S` save as, `Ctrl+E` export (`Cmd` on macOS) |

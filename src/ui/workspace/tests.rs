@@ -359,3 +359,81 @@ fn shift_measure_snaps_to_orthogonal_and_diagonal(cx: &mut TestAppContext) {
     let (a, b) = measured(&ws, cx);
     assert!((b.x - a.x).abs() < 1e-6 && b.y < a.y, "{a:?} {b:?}");
 }
+
+/// Table position of a handle of the selected shape.
+fn shape_handle_at(ws: &Entity<Workspace>, cx: &mut VisualTestContext, h: crate::ui::canvas::ShapeHandle) -> (f64, f64) {
+    ws.read_with(cx, |w, _| {
+        let x = w.xform().unwrap();
+        let (_, at, _) = crate::ui::canvas::shape_handles(w.selected_shape().unwrap(), &x)
+            .into_iter()
+            .find(|(k, _, _)| *k == h)
+            .expect("handle exists");
+        let p = x.to_world(at);
+        (p.x, p.y)
+    })
+}
+
+fn set_obstacle(ws: &Entity<Workspace>, cx: &mut VisualTestContext, shape: Shape) {
+    ws.update(cx, |w, cx| {
+        w.doc.map.obstacles = vec![crate::model::Obstacle { name: "Box".into(), shape }];
+        w.selection = Selection::Obstacle(0);
+        w.refresh(cx);
+    });
+    cx.run_until_parked();
+}
+
+fn obstacle(ws: &Entity<Workspace>, cx: &mut VisualTestContext) -> Shape {
+    ws.read_with(cx, |w, _| w.doc.map.obstacles[0].shape.clone())
+}
+
+#[gpui::test]
+fn rect_handles_resize_and_rotate(cx: &mut TestAppContext) {
+    use crate::ui::canvas::ShapeHandle;
+    let (ws, cx) = setup(cx);
+    set_obstacle(&ws, cx, Shape::Rect { center: vec2(1500., 1000.), size: vec2(200., 200.), rotation: 0. });
+
+    // Corner 2 is (+x, +y); the opposite corner (1400, 900) stays put.
+    let corner = shape_handle_at(&ws, cx, ShapeHandle::Corner(2));
+    assert!((corner.0 - 1600.).abs() < 1. && (corner.1 - 1100.).abs() < 1., "{corner:?}");
+    drag(&ws, cx, corner, (1800., 1300.));
+    let Shape::Rect { center, size, rotation } = obstacle(&ws, cx) else { panic!() };
+    assert_eq!((center, size, rotation), (vec2(1600., 1100.), vec2(400., 400.), 0.));
+
+    // The knob sits above the top edge; dragging it to the right turns -90°.
+    let knob = shape_handle_at(&ws, cx, ShapeHandle::Rotate);
+    assert!(knob.1 > 1300. && (knob.0 - 1600.).abs() < 1., "{knob:?}");
+    drag(&ws, cx, knob, (2200., 1100.));
+    let Shape::Rect { center: c2, size: s2, rotation } = obstacle(&ws, cx) else { panic!() };
+    assert_eq!((c2, s2), (center, size), "rotation keeps centre and size");
+    assert!((rotation.to_degrees() + 90.).abs() < 0.5, "{}", rotation.to_degrees());
+
+    // Each drag is one undo step.
+    cx.simulate_keystrokes("ctrl-z");
+    cx.run_until_parked();
+    assert!(matches!(obstacle(&ws, cx), Shape::Rect { rotation, .. } if rotation == 0.));
+}
+
+#[gpui::test]
+fn circle_radius_and_polygon_vertex_handles(cx: &mut TestAppContext) {
+    use crate::ui::canvas::ShapeHandle;
+    let (ws, cx) = setup(cx);
+    set_obstacle(&ws, cx, Shape::Circle { center: vec2(1500., 1000.), radius: 100. });
+    let h = shape_handle_at(&ws, cx, ShapeHandle::Radius);
+    drag(&ws, cx, h, (1800., 1000.));
+    assert_eq!(obstacle(&ws, cx), Shape::Circle { center: vec2(1500., 1000.), radius: 300. });
+
+    let square = vec![vec2(1000., 1000.), vec2(1400., 1000.), vec2(1400., 1400.), vec2(1000., 1400.)];
+    set_obstacle(&ws, cx, Shape::Polygon { points: square.clone() });
+    // Pulling a corner inwards past the diagonal would make it concave: the
+    // vertex stops at the last convex position on the way.
+    let v = shape_handle_at(&ws, cx, ShapeHandle::Vertex(2));
+    drag(&ws, cx, v, (1100., 1100.));
+    let Shape::Polygon { points } = obstacle(&ws, cx) else { panic!() };
+    assert!(crate::geom::shape::is_convex(&points));
+    assert!(points[2].x + points[2].y >= 2400. && points[2] != square[2], "{:?}", points[2]);
+    // Pulling it outwards is fine.
+    let v = shape_handle_at(&ws, cx, ShapeHandle::Vertex(2));
+    drag(&ws, cx, v, (1600., 1600.));
+    let Shape::Polygon { points } = obstacle(&ws, cx) else { panic!() };
+    assert_eq!(points[2], vec2(1600., 1600.));
+}

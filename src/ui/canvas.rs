@@ -143,6 +143,53 @@ pub fn handles(path: &Path, x: &Xform) -> Vec<(Handle, Vec2, Option<Vec2>)> {
     knobs
 }
 
+/// Something on the selected obstacle or region that can be dragged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShapeHandle {
+    /// Rectangle corner, in `rect_corners` order: resizes against the opposite corner.
+    Corner(usize),
+    /// Polygon vertex.
+    Vertex(usize),
+    /// Point on a circle: drags the radius.
+    Radius,
+    /// Knob that rotates a rectangle or polygon around its centre.
+    Rotate,
+}
+
+/// Distance (px) of the rotation knob beyond the shape.
+const ROTATE_KNOB: f64 = 28.;
+
+/// Screen positions of a shape's handles, highest priority first, with the
+/// anchor a guide line is drawn from (for the rotation knob).
+pub fn shape_handles(shape: &Shape, x: &Xform) -> Vec<(ShapeHandle, Vec2, Option<Vec2>)> {
+    match shape {
+        Shape::Rect { center, size, rotation } => {
+            // Above the edge facing the rectangle's local +y.
+            let top = x.to_screen(*center + Vec2::from_angle(rotation + PI / 2.) * (size.y / 2.));
+            let knob = top + x.dir(rotation + PI / 2.) * ROTATE_KNOB;
+            let mut out = vec![(ShapeHandle::Rotate, knob, Some(top))];
+            let corners = crate::geom::shape::rect_corners(*center, *size, *rotation);
+            out.extend(corners.iter().enumerate().map(|(i, &c)| (ShapeHandle::Corner(i), x.to_screen(c), None)));
+            out
+        }
+        Shape::Circle { center, radius } => {
+            vec![(ShapeHandle::Radius, x.to_screen(*center + vec2(*radius, 0.)), None)]
+        }
+        Shape::Polygon { points } => {
+            let c = x.to_screen(shape.center());
+            let reach = points.iter().map(|&p| x.to_screen(p).distance(c)).fold(0., f64::max);
+            let knob = c + x.dir(PI / 2.) * (reach + ROTATE_KNOB);
+            let mut out = vec![(ShapeHandle::Rotate, knob, Some(c))];
+            out.extend(points.iter().enumerate().map(|(i, &p)| (ShapeHandle::Vertex(i), x.to_screen(p), None)));
+            out
+        }
+    }
+}
+
+pub fn hit_shape_handle(shape: &Shape, x: &Xform, mouse: Vec2) -> Option<ShapeHandle> {
+    shape_handles(shape, x).into_iter().find(|(_, p, _)| p.distance(mouse) <= HIT_RADIUS).map(|(h, _, _)| h)
+}
+
 pub fn hit_handle(path: &Path, x: &Xform, mouse: Vec2) -> Option<Handle> {
     handles(path, x).into_iter().find(|(_, p, _)| p.distance(mouse) <= HIT_RADIUS).map(|(h, _, _)| h)
 }
@@ -572,6 +619,27 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
                     _ => {
                         p.square(at, 4.5, t.bg, t.accent, 2.);
                     }
+                }
+            }
+        }
+
+        // Handles of the selected obstacle or region.
+        let selected_shape = match frame.selection {
+            Selection::Obstacle(i) => map.obstacles.get(i).map(|o| &o.shape),
+            Selection::Region(i) => map.regions.get(i).map(|r| &r.shape),
+            _ => None,
+        };
+        if let Some(shape) = selected_shape {
+            for (h, at, anchor) in shape_handles(shape, &x) {
+                if let Some(a) = anchor {
+                    p.stroke(&[a, at], 1.5, t.accent);
+                }
+                if h == ShapeHandle::Rotate {
+                    let ring = circle_points(at, 6., 24);
+                    p.fill(&ring, t.bg);
+                    p.stroke_closed(&ring, 2., t.accent);
+                } else {
+                    p.square(at, 5., t.bg, t.accent, 2.);
                 }
             }
         }

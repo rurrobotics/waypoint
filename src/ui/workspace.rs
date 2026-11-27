@@ -18,11 +18,11 @@ use gpui::{
 };
 
 use crate::geom::collision::{self, Report};
-use crate::geom::{Path, Sample, Vec2, vec2};
+use crate::geom::{Path, Sample, Shape, Vec2, vec2};
 use crate::model::{Doc, History};
 use crate::theme::{FONT_MONO, FONT_SANS, RADIUS, Theme};
 use crate::titlebar::{TitlebarState, window_frame};
-use crate::ui::canvas::{self, Frame, Handle, Selection, View, Xform};
+use crate::ui::canvas::{self, Frame, Handle, Selection, ShapeHandle, View, Xform};
 use crate::ui::dock::{Layout, Side};
 use crate::ui::fields::Edit;
 use crate::assets::Icon;
@@ -120,6 +120,9 @@ enum Drag {
     Pan { last: Vec2 },
     Handle { path: usize, handle: Handle },
     Object { last: Vec2 },
+    /// Resizing or rotating the selected shape; `start` is the shape when
+    /// the drag began and `angle` the pointer's angle around its centre then.
+    ShapeHandle { handle: ShapeHandle, start: Shape, angle: f64 },
     Create { start: Vec2, current: Vec2 },
     Measure,
     Scrub { field: crate::ui::fields::Field, start_x: f64, start: f64 },
@@ -651,7 +654,9 @@ impl Workspace {
             }
         });
         let cursor = match (&self.drag, self.pending) {
-            (Drag::Pan { .. } | Drag::Handle { .. } | Drag::Object { .. }, _) => CursorStyle::ClosedHand,
+            (Drag::Pan { .. } | Drag::Handle { .. } | Drag::Object { .. } | Drag::ShapeHandle { .. }, _) => {
+                CursorStyle::ClosedHand
+            }
             (_, None) => CursorStyle::Arrow,
             _ => CursorStyle::Crosshair,
         };

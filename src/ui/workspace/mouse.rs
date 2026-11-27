@@ -7,7 +7,7 @@ use crate::geom::path::{Arc, body_heading, travel_heading};
 use crate::geom::shape::is_convex;
 use crate::geom::{Path, Pose, SegmentKind, Shape, Vec2, vec2};
 use crate::model::{Obstacle, Region, RegionColor};
-use crate::ui::canvas::{self, HIT_RADIUS, Handle, Preview, Selection, Xform};
+use crate::ui::canvas::{self, HIT_RADIUS, Handle, Preview, Selection, ShapeHandle, Xform};
 use crate::ui::dock::Side;
 use crate::ui::fields::Unit;
 
@@ -76,6 +76,18 @@ impl Workspace {
             return;
         }
         self.measure = None;
+
+        // Handles of the selected obstacle or region come first.
+        if self.pending.is_none()
+            && let Some(shape) = self.selected_shape().cloned()
+            && let Some(handle) = canvas::hit_shape_handle(&shape, &x, mouse)
+        {
+            let angle = (world - shape.center()).angle();
+            self.begin_drag_edit();
+            self.drag = Drag::ShapeHandle { handle, start: shape, angle };
+            cx.notify();
+            return;
+        }
 
         // Handles on the active path win unless a shape or measurement is armed.
         if matches!(self.pending, None | Some(Pending::DrawPath))
@@ -292,6 +304,18 @@ impl Workspace {
                     }
                 }
             }
+            Drag::ShapeHandle { handle, ref start, angle } => {
+                if let Some(x) = x {
+                    let start = start.clone();
+                    let world = x.to_world(mouse);
+                    if let Some(shape) = self.reshaped(&start, handle, angle, world, &e.modifiers)
+                        && let Some(target) = self.selected_shape_mut()
+                    {
+                        *target = shape;
+                        self.refresh(cx);
+                    }
+                }
+            }
             Drag::Create { start, .. } => {
                 if let Some(x) = x {
                     let current = self.snap_point(x.to_world(mouse), &e.modifiers);
@@ -342,7 +366,7 @@ impl Workspace {
                 }
             }
             Drag::Measure => self.pending = None,
-            Drag::Handle { .. } | Drag::Object { .. } | Drag::Scrub { .. } => {
+            Drag::Handle { .. } | Drag::Object { .. } | Drag::ShapeHandle { .. } | Drag::Scrub { .. } => {
                 self.end_drag_edit();
             }
             Drag::DockWidth { .. } | Drag::DockSplit { .. } => self.layout.save(),
@@ -370,6 +394,60 @@ impl Workspace {
         self.view.zoom_at((dy * 0.004).exp(), at);
         self.auto_fit = false;
         cx.notify();
+    }
+
+    /// `start` with one of its handles dragged to `world`, or `None` when the
+    /// result isn't allowed (a concave polygon).
+    fn reshaped(&self, start: &Shape, handle: ShapeHandle, angle0: f64, world: Vec2, m: &Modifiers) -> Option<Shape> {
+        let center = start.center();
+        let rotation_delta = || {
+            let a = (world - center).angle() - angle0;
+            if m.shift { snap_angle(a) } else { a }
+        };
+        let mut shape = start.clone();
+        match (&mut shape, handle) {
+            (Shape::Rect { center, size, rotation }, ShapeHandle::Corner(i)) => {
+                // Work in the rectangle's frame; the opposite corner stays put.
+                let corners = crate::geom::shape::rect_corners(*center, *size, *rotation);
+                let fixed = corners[(i + 2) % 4].sub_rotated(*center, *rotation);
+                let mut moved = self.snap_point(world, m).sub_rotated(*center, *rotation);
+                if m.shift {
+                    let d = moved - fixed;
+                    let side = d.x.abs().max(d.y.abs());
+                    moved = fixed + vec2(side.copysign(d.x), side.copysign(d.y));
+                }
+                let d = moved - fixed;
+                *size = vec2(d.x.abs().max(1.), d.y.abs().max(1.));
+                *center += fixed.lerp(moved, 0.5).rotated(*rotation);
+            }
+            (Shape::Rect { rotation, .. }, ShapeHandle::Rotate) => {
+                let Shape::Rect { rotation: r0, .. } = start else { return None };
+                let mut r = crate::geom::vec::wrap_angle(r0 + rotation_delta());
+                if m.shift {
+                    r = snap_angle(r);
+                }
+                *rotation = r;
+            }
+            (Shape::Circle { center, radius }, ShapeHandle::Radius) => {
+                let mut r = world.distance(*center);
+                if self.snap > 0. && !m.alt {
+                    r = (r / self.snap).round() * self.snap;
+                }
+                *radius = r.max(1.);
+            }
+            (Shape::Polygon { points }, ShapeHandle::Vertex(i)) => {
+                points[i] = self.snap_point(world, m);
+                if !is_convex(points) {
+                    return None;
+                }
+            }
+            (Shape::Polygon { points }, ShapeHandle::Rotate) => {
+                let a = rotation_delta();
+                points.iter_mut().for_each(|p| *p = center + (*p - center).rotated(a));
+            }
+            _ => return None,
+        }
+        Some(shape)
     }
 
     fn drag_handle(&mut self, ai: usize, h: Handle, world: Vec2, m: &Modifiers) {

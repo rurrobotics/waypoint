@@ -77,7 +77,7 @@ cargo test                     # geometry, model and headless UI tests
 | Add waypoints to a path | Select the path → **Add waypoints** |
 | New obstacle / region | Click a shape icon next to **Obstacle** / **Region** (`O` / `R` for a rectangle), then drag. Polygons: click the vertices, `Enter` or double-click closes. `Shift` draws a square. |
 | Measure | Ruler icon or `M`, then drag. `Shift` keeps the line horizontal, vertical or diagonal (45°). |
-| Edit | Drag waypoints, tangent handles (Hermite), angle and radius handles (turns) and shapes. Or type values in the *Selected* panel: click a field, or drag its label to scrub (Shift ×10, Alt ÷10). Arrow keys step. |
+| Edit | Drag waypoints, tangent handles (Hermite), angle and radius handles (turns) and shapes. A selected obstacle or region has handles too: rectangle corners resize (`Shift` keeps it square), a circle's edge sets the radius, polygon vertices move (staying convex), and the round knob rotates rectangles and polygons (`Shift` snaps to 15°). Or type values in the *Selected* panel: click a field, or drag its label to scrub (Shift ×10, Alt ÷10). Arrow keys step. |
 | Snap | Toolbar magnet cycles the grid (off, 1, 5, 10, 50, 100 mm). `Shift` snaps angles to 15°, `Alt` disables grid snap. |
 | View | Wheel zooms, right- or middle-drag pans, `F` fits the table |
 | Delete | `Delete`/`Backspace`, the trash button in *Selected*, or hover a row in *Outline* |

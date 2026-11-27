@@ -71,6 +71,11 @@ impl Vec2 {
         vec2(self.x * c - self.y * s, self.x * s + self.y * c)
     }
 
+    /// This point in the frame of an origin at `origin` rotated by `rotation`.
+    pub fn sub_rotated(self, origin: Self, rotation: f64) -> Self {
+        (self - origin).rotated(-rotation)
+    }
+
     pub fn lerp(self, o: Self, t: f64) -> Self {
         self + (o - self) * t
     }

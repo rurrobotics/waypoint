@@ -28,7 +28,7 @@ impl Workspace {
         }
     }
 
-    fn selected_shape(&self) -> Option<&Shape> {
+    pub(super) fn selected_shape(&self) -> Option<&Shape> {
         match self.selection {
             Selection::Obstacle(i) => self.doc.map.obstacles.get(i).map(|o| &o.shape),
             Selection::Region(i) => self.doc.map.regions.get(i).map(|r| &r.shape),
@@ -36,7 +36,7 @@ impl Workspace {
         }
     }
 
-    fn selected_shape_mut(&mut self) -> Option<&mut Shape> {
+    pub(super) fn selected_shape_mut(&mut self) -> Option<&mut Shape> {
         match self.selection {
             Selection::Obstacle(i) => self.doc.map.obstacles.get_mut(i).map(|o| &mut o.shape),
             Selection::Region(i) => self.doc.map.regions.get_mut(i).map(|r| &mut r.shape),

@@ -1,0 +1,155 @@
+# Waypoint
+
+Waypoint is a desktop editor for planning robot paths on the
+[Eurobot](https://www.eurobot.org/) playing table. Draw a path out of straight
+lines, turns and Hermite curves, give it your robot's size, and see the
+footprint swept along the path: every spot where the robot would hit a wall or
+an obstacle is highlighted. Export the result as JSON for the robot's code.
+
+It's written in Rust with [GPUI](https://www.gpui.rs/) and runs on Linux
+(Wayland and X11), Windows and macOS.
+
+## Features
+
+- **Paths for differential-drive robots.** A path is a start pose followed by
+  segments:
+  - **Straight**: drive to a point. When the robot isn't facing it, an
+    *auto turn* in place is inserted and kept aligned while you edit.
+  - **Turn**: rotate by an angle. Radius 0 turns in place; a larger radius
+    drives an arc.
+  - **Hermite**: a smooth cubic curve to a free end pose, shaped by two tangents.
+  - Any segment can be driven in **reverse**.
+- **Robot limits.** Set length, width, rotation-centre offset and a safety
+  margin. The footprint is swept along the path (in-place turns show their
+  sweep circle), collisions with walls and obstacles turn red, and the status
+  bar shows the collision count and minimum clearance. Heading jumps are
+  flagged.
+- **The table.** Load the year's playground image as the background, then draw
+  obstacles and coloured regions of interest (start zones, scoring areas…).
+  Rectangles, circles and convex polygons; hold **Shift** for squares.
+- **Templates.** Start new projects from a template: a blank 3000 × 2000 table,
+  or your own saved with **Save as template** (table, obstacles, regions,
+  background and robot).
+- **No modes.** The canvas always selects and drags. **New path**,
+  **New obstacle**, **New region** and **Measure** are one-shot actions.
+- **Dockable panels.** *Selected* (properties of what's selected), *Outline*
+  (everything on the table) and *Settings* (Robot / Map / Project tabs). Drag a
+  panel by its header to the other side or reorder it; drag the edges to resize.
+  The layout is remembered.
+- Undo/redo, grid snapping, light and dark theme following the system.
+
+## Install
+
+Download an archive for your platform from the
+[releases](../../releases) page, unpack it and run `waypoint`
+(`waypoint.exe` on Windows). Open a project directly with
+`waypoint strategy.json`.
+
+## Build from source
+
+You need a recent stable Rust toolchain (edition 2024).
+
+On Linux, install the libraries GPUI links against first:
+
+```sh
+# Debian / Ubuntu
+sudo apt install libxcb1-dev libxcb-xkb-dev libx11-xcb-dev libxkbcommon-dev \
+  libxkbcommon-x11-dev libwayland-dev libvulkan-dev libfontconfig-dev libfreetype-dev
+# Fedora
+sudo dnf install libxcb-devel libxkbcommon-devel libxkbcommon-x11-devel \
+  wayland-devel vulkan-loader-devel fontconfig-devel freetype-devel
+```
+
+Then:
+
+```sh
+cargo run --release            # start the editor
+cargo run --release -- my.json # open a project
+cargo test                     # geometry, model and headless UI tests
+```
+
+## Using it
+
+| Action | How |
+| --- | --- |
+| New path | **New path** in the toolbar or `P`, then click to add waypoints. Pick the segment kind, Reverse and Auto turn in the floating bar. `Enter`, `Esc`, double-click or **Done** finishes. |
+| Add waypoints to a path | Select the path → **Add waypoints** |
+| New obstacle / region | Click a shape icon next to **Obstacle** / **Region** (`O` / `R` for a rectangle), then drag. Polygons: click the vertices, `Enter` or double-click closes. `Shift` draws a square. |
+| Measure | Ruler icon or `M`, then drag |
+| Edit | Drag waypoints, tangent handles (Hermite), angle and radius handles (turns) and shapes. Or type values in the *Selected* panel: click a field, or drag its label to scrub (Shift ×10, Alt ÷10). Arrow keys step. |
+| Snap | Toolbar magnet cycles the grid (off, 1, 5, 10, 50, 100 mm). `Shift` snaps angles to 15°, `Alt` disables grid snap. |
+| View | Wheel zooms, right- or middle-drag pans, `F` fits the table |
+| Delete | `Delete`/`Backspace`, the trash button in *Selected*, or hover a row in *Outline* |
+| Files | `Ctrl+N` new from template, `Ctrl+O` open, `Ctrl+S` save, `Ctrl+Shift+S` save as, `Ctrl+E` export (`Cmd` on macOS) |
+| Undo / redo | `Ctrl+Z` / `Ctrl+Shift+Z` (or `Ctrl+Y`) |
+
+## Coordinates and units
+
+Lengths are millimetres and angles radians. The origin is a table corner (set
+in *Settings → Map*: bottom-left with y up, or top-left with y down), x runs
+along the long side, and angles are counter-clockwise from +x. A path's pose is
+the robot's **rotation centre**, and the heading is the direction the body
+faces. On a reverse segment the robot drives backwards.
+
+## Files
+
+### Project (`*.json`)
+
+A plain JSON file with the map, robot and paths. The background image path is
+stored relative to the project when it's in the same folder tree. A template is
+the same format without paths.
+
+### Export (`Export` / `Ctrl+E`)
+
+The paths exactly as edited: segment types and their parameters. Nothing is
+sampled or derived; follow the segments from `start` to reconstruct the path.
+
+```json
+{
+  "format": "waypoint-paths",
+  "version": 2,
+  "units": { "length": "mm", "angle": "rad" },
+  "table": { "name": "Eurobot", "year": 2026, "width": 3000.0, "height": 2000.0, "origin": "bottom-left" },
+  "robot": { "length": 300.0, "width": 250.0, "offset": [0.0, 0.0], "margin": 20.0 },
+  "paths": [
+    {
+      "name": "Match A",
+      "start": { "x": 250.0, "y": 250.0, "theta": 0.0 },
+      "segments": [
+        { "type": "straight", "to": [1000.0, 250.0] },
+        { "type": "turn", "angle": 1.5708, "radius": 0.0, "auto": true },
+        { "type": "turn", "angle": -1.5708, "radius": 300.0 },
+        { "type": "hermite", "to": { "x": 2300.0, "y": 1450.0, "theta": 0.0 }, "t0": 900.0, "t1": 900.0 },
+        { "type": "straight", "to": [1900.0, 1450.0], "reverse": true }
+      ]
+    }
+  ]
+}
+```
+
+| Segment | Parameters | Meaning |
+| --- | --- | --- |
+| `straight` | `to: [x, y]` | Drive straight to the point. The body faces the direction of travel (or away from it when `reverse`). |
+| `turn` | `angle`, `radius` | Rotate by `angle` (CCW positive). `radius: 0` turns in place; otherwise drive an arc of that radius, turning towards the side of the angle's sign. `auto` marks turns the editor keeps aligned with the following straight. |
+| `hermite` | `to: {x, y, theta}`, `t0`, `t1` | Cubic Hermite curve from the current pose to `to`. The tangents point along the travel direction at each end, with magnitudes `t0` and `t1` (mm). |
+
+`reverse: true` appears only on segments driven backwards.
+
+### Where things are stored
+
+User templates and the panel layout live in the config directory:
+`~/.config/waypoint` on Linux (or `$XDG_CONFIG_HOME/waypoint`),
+`~/Library/Application Support/waypoint` on macOS, and `%APPDATA%\waypoint` on
+Windows.
+
+## Releases
+
+Pushing a tag like `v0.2.0` runs [`release.yml`](.github/workflows/release.yml).
+It tests and builds Linux (x86_64, aarch64), Windows (x86_64) and macOS (Apple
+Silicon, Intel), then publishes a GitHub release with archives and SHA-256
+checksums. Tags containing `-` (`v0.2.0-rc1`) become prereleases.
+
+## Credits
+
+- Fonts: [Inter](https://rsms.me/inter/) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/), SIL Open Font License (`assets/fonts`)
+- Icons: [Lucide](https://lucide.dev/), ISC License (`assets/icons`)

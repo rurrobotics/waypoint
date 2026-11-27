@@ -1,0 +1,11 @@
+[package]
+name = "waypoint"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gpui = "0.2.2"
+
+# Workaround: gpui 0.2.2 -> zed-async-tar -> xattr 0.2.3 uses libc::ENOATTR,
+# which libc removed on Linux in 0.2.190. Drop this once gpui is updated.
+libc = ">=0.2, <0.2.190"

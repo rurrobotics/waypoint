@@ -9,6 +9,8 @@ an obstacle is highlighted. Export the result as JSON for the robot's code.
 It's written in Rust with [GPUI](https://www.gpui.rs/) and runs on Linux
 (Wayland and X11), Windows and macOS.
 
+![Waypoint with a path from the throne room to the quarries on the Eurobot 2027 table](docs/screenshot.png)
+
 ## Features
 
 - **Paths for differential-drive robots.** A path is a start pose followed by

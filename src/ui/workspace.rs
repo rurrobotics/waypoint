@@ -12,18 +12,18 @@ use std::rc::Rc;
 
 use gpui::{
     App, Bounds, Context, CursorStyle, Div, FocusHandle, Focusable, FontWeight, KeyBinding, MouseButton,
-    ObjectFit, Pixels, Stateful, Subscription, Window, actions, canvas, div, img, prelude::*, px,
+    ObjectFit, Pixels, SharedString, Stateful, Subscription, Window, actions, canvas, div, img, prelude::*, px,
 };
 
 use crate::geom::collision::{self, Report};
 use crate::geom::{Path, Sample, Vec2, vec2};
-use crate::model::{Doc, History, RegionColor};
+use crate::model::{Doc, History};
 use crate::theme::{FONT_MONO, FONT_SANS, RADIUS, Theme, alpha};
 use crate::titlebar::{TitlebarState, window_frame};
 use crate::ui::canvas::{self, Frame, Handle, Selection, View, Xform};
 use crate::ui::fields::Edit;
 use crate::assets::Icon;
-use crate::ui::widgets::{badge, button_icon, chip_icon, icon_button, label, primary_button, section_title};
+use crate::ui::widgets::{badge, chip_icon, icon, icon_button, label, primary_button, section_title, tooltip};
 
 /// Sampling step for drawing and collision checking (mm).
 const ANALYSIS_STEP: f64 = 5.;
@@ -44,11 +44,10 @@ actions!(
         Cancel,
         FinishShape,
         FitView,
-        ToolSelect,
-        ToolWaypoint,
-        ToolObstacle,
-        ToolRegion,
-        ToolMeasure,
+        NewPath,
+        NewObstacle,
+        NewRegion,
+        StartMeasure,
         Quit,
     ]
 );
@@ -66,11 +65,10 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-shift-s", SaveProjectAs, ws),
         KeyBinding::new("secondary-e", ExportJson, ws),
         KeyBinding::new("secondary-q", Quit, None),
-        KeyBinding::new("v", ToolSelect, canvas),
-        KeyBinding::new("w", ToolWaypoint, canvas),
-        KeyBinding::new("o", ToolObstacle, canvas),
-        KeyBinding::new("r", ToolRegion, canvas),
-        KeyBinding::new("m", ToolMeasure, canvas),
+        KeyBinding::new("p", NewPath, canvas),
+        KeyBinding::new("o", NewObstacle, canvas),
+        KeyBinding::new("r", NewRegion, canvas),
+        KeyBinding::new("m", StartMeasure, canvas),
         KeyBinding::new("f", FitView, canvas),
         KeyBinding::new("delete", DeleteSelection, canvas),
         KeyBinding::new("backspace", DeleteSelection, canvas),
@@ -79,12 +77,22 @@ pub fn bind_keys(cx: &mut App) {
     ]);
 }
 
+/// Which map layer a new shape goes to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tool {
-    Select,
-    Waypoint,
+pub enum Layer {
     Obstacle,
     Region,
+}
+
+/// A one-shot action started from the toolbar. Without one, the canvas
+/// selects and drags.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pending {
+    /// Clicks add waypoints to the active path (a new path when there is none).
+    DrawPath,
+    /// The next drag (or polygon clicks) draws one shape.
+    Shape { layer: Layer, kind: ShapeTool },
+    /// The next drag measures a distance.
     Measure,
 }
 
@@ -139,14 +147,12 @@ pub struct Workspace {
     revision: u64,
     analysis: Option<Analysis>,
 
-    tool: Tool,
-    shape_tool: ShapeTool,
+    pending: Option<Pending>,
     seg_tool: SegTool,
     reverse: bool,
     auto_turn: bool,
     snap: f64,
     show_sweep: bool,
-    region_color: RegionColor,
     /// Sample spacing for exports (mm).
     export_step: f64,
 
@@ -201,14 +207,12 @@ impl Workspace {
             dirty: false,
             revision: 0,
             analysis: None,
-            tool: Tool::Waypoint,
-            shape_tool: ShapeTool::Rect,
+            pending: None,
             seg_tool: SegTool::Straight,
             reverse: false,
             auto_turn: true,
             snap: 10.,
             show_sweep: true,
-            region_color: RegionColor::Blue,
             export_step: 10.,
             active_path: None,
             selection: Selection::None,
@@ -350,12 +354,40 @@ impl Workspace {
         }
     }
 
-    fn set_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
-        self.tool = tool;
+    /// Starts a one-shot action; starting the armed one again cancels it.
+    fn start(&mut self, pending: Pending, cx: &mut Context<Self>) {
         self.polygon.clear();
         self.measure = None;
         self.drag = Drag::None;
+        if self.pending == Some(pending) {
+            self.pending = None;
+        } else {
+            self.pending = Some(pending);
+            if pending == Pending::DrawPath {
+                self.active_path = None;
+                self.selection = Selection::None;
+            }
+        }
         cx.notify();
+    }
+
+    /// Adds waypoints to the end of an existing path.
+    fn extend_path(&mut self, path: usize, cx: &mut Context<Self>) {
+        self.polygon.clear();
+        self.measure = None;
+        self.active_path = Some(path);
+        self.selection = Selection::Waypoint { path, index: self.doc.paths[path].segments.len() };
+        self.pending = Some(Pending::DrawPath);
+        cx.notify();
+    }
+
+    /// Ends the pending action, closing an open polygon.
+    fn finish_pending(&mut self, cx: &mut Context<Self>) {
+        if !self.polygon.is_empty() {
+            self.finish_polygon();
+        }
+        self.pending = None;
+        self.refresh(cx);
     }
 
     fn delete_selection(&mut self, _: &DeleteSelection, _: &mut Window, cx: &mut Context<Self>) {
@@ -401,7 +433,8 @@ impl Workspace {
     }
 
     fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.polygon.is_empty() || self.measure.is_some() || !matches!(self.drag, Drag::None) {
+        if self.pending.is_some() || !self.polygon.is_empty() || self.measure.is_some() || !matches!(self.drag, Drag::None) {
+            self.pending = None;
             self.polygon.clear();
             self.measure = None;
             self.drag = Drag::None;
@@ -420,95 +453,43 @@ impl Workspace {
     // ---- rendering -------------------------------------------------------------
 
     fn render_toolbar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let tool_chip = |id: &'static str, i: Icon, label: &str, tool: Tool, cx: &mut Context<Self>| {
-            chip_icon(id, Some(i), label, self.tool == tool, t)
-                .on_click(cx.listener(move |this, _, _, cx| this.set_tool(tool, cx)))
-        };
-        let sub = |id: &'static str, i: Icon, label: &str, active: bool| chip_icon(id, Some(i), label, active, t);
-
-        let mut subtools = div().flex().items_center().gap_1();
-        match self.tool {
-            Tool::Waypoint => {
-                for (id, i, label, s) in [
-                    ("seg-straight", Icon::MoveRight, "Straight", SegTool::Straight),
-                    ("seg-turn", Icon::RotateCw, "Turn in place", SegTool::TurnInPlace),
-                    ("seg-arc", Icon::CornerUpRight, "Arc", SegTool::TurnArc),
-                    ("seg-hermite", Icon::Spline, "Hermite", SegTool::Hermite),
-                ] {
-                    subtools = subtools.child(
-                        sub(id, i, label, self.seg_tool == s)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.seg_tool = s;
-                                cx.notify();
-                            })),
-                    );
-                }
-                subtools = subtools
-                    .child(div().w(px(8.)))
-                    .child(chip_icon("reverse", Some(Icon::Reverse), "Reverse", self.reverse, t).on_click(
-                        cx.listener(|this, _, _, cx| {
-                            this.reverse = !this.reverse;
-                            cx.notify();
-                        }),
-                    ))
-                    .child(chip_icon("auto-turn", None, "Auto turn", self.auto_turn, t).on_click(
-                        cx.listener(|this, _, _, cx| {
-                            this.auto_turn = !this.auto_turn;
-                            cx.notify();
-                        }),
-                    ))
-                    .child(button_icon("new-path", Some(Icon::Plus), "New path", false, t).on_click(cx.listener(
-                        |this, _, _, cx| {
-                            this.active_path = None;
-                            this.selection = Selection::None;
-                            this.set_status("Click on the table to place the start of the new path", false);
-                            cx.notify();
-                        },
-                    )));
-            }
-            Tool::Obstacle | Tool::Region => {
-                for (id, i, label, s) in [
-                    ("shape-rect", Icon::Square, "Rect", ShapeTool::Rect),
-                    ("shape-circle", Icon::Circle, "Circle", ShapeTool::Circle),
-                    ("shape-poly", Icon::Pentagon, "Polygon", ShapeTool::Polygon),
-                ] {
-                    subtools = subtools.child(sub(id, i, label, self.shape_tool == s).on_click(cx.listener(
-                        move |this, _, _, cx| {
-                            this.shape_tool = s;
-                            this.polygon.clear();
-                            cx.notify();
-                        },
-                    )));
-                }
-                if self.tool == Tool::Region {
-                    subtools = subtools.child(div().w(px(8.)));
-                    for (i, c) in RegionColor::ALL.into_iter().enumerate() {
-                        let color = canvas::region_color(t, c);
-                        let active = self.region_color == c;
-                        subtools = subtools.child(
-                            div()
-                                .id(("region-color", i))
-                                .size(px(22.))
-                                .bg(color)
-                                .rounded_full()
-                                .border_2()
-                                .border_color(if active { t.fg } else { color })
-                                .cursor_pointer()
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.region_color = c;
-                                    cx.notify();
-                                })),
-                        );
-                    }
-                }
-            }
-            Tool::Select | Tool::Measure => {}
-        }
-
+        let sep = || div().w(px(1.)).h(px(18.)).mx_1().flex_none().bg(t.border);
         let snap_label = if self.snap == 0. { "Off".to_string() } else { format!("{} mm", canvas::format_mm(self.snap)) };
 
-        let sep = || div().w(px(1.)).h(px(18.)).mx_1().flex_none().bg(t.border);
+        // "Obstacle □ ○ ⬠": one icon per shape, each starting a one-shot draw.
+        let shape_group = |layer: Layer, name: &str, cx: &mut Context<Self>| {
+            let mut group = div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .h(px(30.))
+                .pl_2()
+                .gap_0p5()
+                .rounded(RADIUS)
+                .border_1()
+                .border_color(t.border)
+                .child(icon(Icon::Plus, 14., t.muted))
+                .child(div().text_size(px(12.)).pr_1().child(name.to_string()));
+            for (kind, i, tip) in [
+                (ShapeTool::Rect, Icon::Square, "rectangle"),
+                (ShapeTool::Circle, Icon::Circle, "circle"),
+                (ShapeTool::Polygon, Icon::Pentagon, "polygon"),
+            ] {
+                let pending = Pending::Shape { layer, kind };
+                group = group.child(
+                    icon_button(
+                        SharedString::from(format!("new-{name}-{tip}")),
+                        i,
+                        &format!("New {} {tip}", name.to_lowercase()),
+                        self.pending == Some(pending),
+                        t,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.start(pending, cx))),
+                );
+            }
+            group
+        };
+
         div()
             .flex()
             .flex_1()
@@ -518,27 +499,39 @@ impl Workspace {
             .overflow_hidden()
             .child(self.render_file_actions(t, cx))
             .child(sep())
-            .child(tool_chip("tool-select", Icon::Pointer, "Select", Tool::Select, cx))
-            .child(tool_chip("tool-waypoint", Icon::Route, "Waypoint", Tool::Waypoint, cx))
-            .child(tool_chip("tool-obstacle", Icon::Square, "Obstacle", Tool::Obstacle, cx))
-            .child(tool_chip("tool-region", Icon::SquareDashed, "Region", Tool::Region, cx))
-            .child(tool_chip("tool-measure", Icon::Ruler, "Measure", Tool::Measure, cx))
-            .child(sep())
-            .child(subtools)
+            .child(
+                chip_icon("new-path", Some(Icon::Route), "New path", self.pending == Some(Pending::DrawPath), t)
+                    .h(px(30.))
+                    .tooltip(tooltip("New path (P)"))
+                    .on_click(cx.listener(|this, _, _, cx| this.start(Pending::DrawPath, cx))),
+            )
+            .child(shape_group(Layer::Obstacle, "Obstacle", cx))
+            .child(shape_group(Layer::Region, "Region", cx))
+            .child(
+                icon_button("measure", Icon::Ruler, "Measure (M)", self.pending == Some(Pending::Measure), t)
+                    .on_click(cx.listener(|this, _, _, cx| this.start(Pending::Measure, cx))),
+            )
             .child(div().flex_1())
-            .child(chip_icon("snap", Some(Icon::Magnet), &snap_label, self.snap > 0., t).on_click(cx.listener(
-                |this, _, _, cx| {
+            .child(chip_icon("snap", Some(Icon::Magnet), &snap_label, self.snap > 0., t).tooltip(tooltip("Grid snap")).on_click(
+                cx.listener(|this, _, _, cx| {
                     let i = SNAP_STEPS.iter().position(|&s| s == this.snap).unwrap_or(0);
                     this.snap = SNAP_STEPS[(i + 1) % SNAP_STEPS.len()];
                     cx.notify();
-                },
-            )))
-            .child(icon_button("sweep", if self.show_sweep { Icon::Eye } else { Icon::EyeOff }, "Show robot sweep", self.show_sweep, t).on_click(cx.listener(
-                |this, _, _, cx| {
+                }),
+            ))
+            .child(
+                icon_button(
+                    "sweep",
+                    if self.show_sweep { Icon::Eye } else { Icon::EyeOff },
+                    "Show robot sweep",
+                    self.show_sweep,
+                    t,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
                     this.show_sweep = !this.show_sweep;
                     cx.notify();
-                },
-            )))
+                })),
+            )
             .child(icon_button("fit", Icon::Fit, "Fit table (F)", false, t).on_click(cx.listener(|this, _, w, cx| {
                 this.fit_view(&FitView, w, cx)
             })))
@@ -546,6 +539,51 @@ impl Workspace {
                 primary_button("file-export", Some(Icon::Download), "Export", t)
                     .on_click(cx.listener(|this, _, w, cx| this.export_json(&ExportJson, w, cx))),
             )
+    }
+
+    /// Floating options while drawing a path.
+    fn render_draw_bar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let mut bar = div()
+            .flex()
+            .items_center()
+            .gap_1()
+            .p_1()
+            .rounded(RADIUS)
+            .bg(t.bg)
+            .border_1()
+            .border_color(t.border)
+            .shadow_md()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+        for (id, i, label, s) in [
+            ("seg-straight", Icon::MoveRight, "Straight", SegTool::Straight),
+            ("seg-turn", Icon::RotateCw, "Turn in place", SegTool::TurnInPlace),
+            ("seg-arc", Icon::CornerUpRight, "Arc", SegTool::TurnArc),
+            ("seg-hermite", Icon::Spline, "Hermite", SegTool::Hermite),
+        ] {
+            bar = bar.child(chip_icon(id, Some(i), label, self.seg_tool == s, t).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    this.seg_tool = s;
+                    cx.notify();
+                },
+            )));
+        }
+        bar.child(div().w(px(1.)).h(px(18.)).mx_1().bg(t.border))
+            .child(chip_icon("reverse", Some(Icon::Reverse), "Reverse", self.reverse, t).on_click(cx.listener(
+                |this, _, _, cx| {
+                    this.reverse = !this.reverse;
+                    cx.notify();
+                },
+            )))
+            .child(
+                chip_icon("auto-turn", None, "Auto turn", self.auto_turn, t)
+                    .tooltip(tooltip("Turn in place before a straight that doesn't start aligned"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.auto_turn = !this.auto_turn;
+                        cx.notify();
+                    })),
+            )
+            .child(div().w(px(1.)).h(px(18.)).mx_1().bg(t.border))
+            .child(primary_button("draw-done", None, "Done", t).on_click(cx.listener(|this, _, _, cx| this.finish_pending(cx))))
     }
 
     fn render_file_actions(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -603,7 +641,7 @@ impl Workspace {
             ));
         }
         if self.doc.paths.is_empty() {
-            paths = paths.child(label(t, "No paths yet — pick Waypoint and click the table"));
+            paths = paths.child(label(t, "No paths yet — use New path in the toolbar"));
         }
 
         let mut obstacles = div().flex().flex_col().gap_1();
@@ -647,14 +685,14 @@ impl Workspace {
     }
 
     fn render_canvas(&mut self, t: &Theme, frame: Frame, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let draw_bar = self.render_draw_bar(t, cx);
         let bounds_cell = self.canvas_bounds.clone();
         let view = self.view;
         let size = self.doc.map.size() * view.zoom;
         let background = self.doc.map.background.clone().filter(|_| view.zoom > 0.);
-        let cursor = match (&self.drag, self.tool) {
-            (Drag::Pan { .. }, _) => CursorStyle::ClosedHand,
-            (Drag::Handle { .. } | Drag::Object { .. }, _) => CursorStyle::ClosedHand,
-            (_, Tool::Select) => CursorStyle::Arrow,
+        let cursor = match (&self.drag, self.pending) {
+            (Drag::Pan { .. } | Drag::Handle { .. } | Drag::Object { .. }, _) => CursorStyle::ClosedHand,
+            (_, None) => CursorStyle::Arrow,
             _ => CursorStyle::Crosshair,
         };
 
@@ -708,19 +746,22 @@ impl Workspace {
                 .absolute()
                 .size_full(),
             )
+            .when(self.pending == Some(Pending::DrawPath), |d| {
+                d.child(div().absolute().top_3().left_0().right_0().flex().justify_center().child(draw_bar))
+            })
     }
 
     fn render_status(&mut self, t: &Theme) -> impl IntoElement + use<> {
         let hover = self.hover.map(|p| format!("X {:>6}  Y {:>6}", canvas::format_mm(p.x), canvas::format_mm(p.y)));
-        let hint = match (self.tool, self.active_path.is_some()) {
-            (Tool::Select, _) => "Drag handles or shapes · wheel zooms · right-drag pans",
-            (Tool::Waypoint, false) => "Click to place the start of a new path",
-            (Tool::Waypoint, true) => "Click to append · Shift snaps 15° · Alt disables grid snap",
-            (Tool::Obstacle | Tool::Region, _) => match self.shape_tool {
-                ShapeTool::Polygon => "Click vertices · Enter or double-click closes (convex only)",
-                _ => "Drag to draw",
-            },
-            (Tool::Measure, _) => "Drag to measure",
+        let hint = match self.pending {
+            None => "Drag handles or shapes · wheel zooms · right-drag pans",
+            Some(Pending::DrawPath) if self.active_path.is_none() => "Click to place the start of the path",
+            Some(Pending::DrawPath) => "Click to add waypoints · Shift snaps 15° · Enter or double-click finishes",
+            Some(Pending::Shape { kind: ShapeTool::Polygon, .. }) => {
+                "Click vertices · Enter or double-click closes (convex only)"
+            }
+            Some(Pending::Shape { .. }) => "Drag to draw · Shift makes it square",
+            Some(Pending::Measure) => "Drag to measure",
         };
         let zoom = format!("{:.0}%", self.view.zoom * 100.);
         let name = self
@@ -838,11 +879,14 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::cancel))
             .on_action(cx.listener(Self::finish_shape))
             .on_action(cx.listener(Self::fit_view))
-            .on_action(cx.listener(|this, _: &ToolSelect, _, cx| this.set_tool(Tool::Select, cx)))
-            .on_action(cx.listener(|this, _: &ToolWaypoint, _, cx| this.set_tool(Tool::Waypoint, cx)))
-            .on_action(cx.listener(|this, _: &ToolObstacle, _, cx| this.set_tool(Tool::Obstacle, cx)))
-            .on_action(cx.listener(|this, _: &ToolRegion, _, cx| this.set_tool(Tool::Region, cx)))
-            .on_action(cx.listener(|this, _: &ToolMeasure, _, cx| this.set_tool(Tool::Measure, cx)))
+            .on_action(cx.listener(|this, _: &NewPath, _, cx| this.start(Pending::DrawPath, cx)))
+            .on_action(cx.listener(|this, _: &NewObstacle, _, cx| {
+                this.start(Pending::Shape { layer: Layer::Obstacle, kind: ShapeTool::Rect }, cx)
+            }))
+            .on_action(cx.listener(|this, _: &NewRegion, _, cx| {
+                this.start(Pending::Shape { layer: Layer::Region, kind: ShapeTool::Rect }, cx)
+            }))
+            .on_action(cx.listener(|this, _: &StartMeasure, _, cx| this.start(Pending::Measure, cx)))
             .on_action(|_: &Quit, _, cx| cx.quit())
             .on_mouse_move(cx.listener(Self::mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))

@@ -2,7 +2,7 @@
 
 use gpui::{Entity, Modifiers, MouseButton, Point, TestAppContext, VisualTestContext, point, px};
 
-use super::{SegTool, Workspace};
+use super::{Pending, SegTool, Workspace};
 use crate::geom::{SegmentKind, vec2};
 use crate::theme::Theme;
 use crate::ui::canvas::Selection;
@@ -62,6 +62,8 @@ fn set_seg_tool(ws: &Entity<Workspace>, cx: &mut VisualTestContext, tool: SegToo
 fn draws_path_with_every_segment_kind(cx: &mut TestAppContext) {
     let (ws, cx) = setup(cx);
 
+    cx.simulate_keystrokes("p");
+    assert_eq!(ws.read_with(cx, |w, _| w.pending), Some(Pending::DrawPath));
     click(&ws, cx, 300., 300.); // start
     click(&ws, cx, 1200., 300.); // straight ahead
     click(&ws, cx, 1200., 1000.); // straight to the left: auto turn first
@@ -91,14 +93,24 @@ fn draws_path_with_every_segment_kind(cx: &mut TestAppContext) {
         assert!((end.theta.to_degrees() + 90.).abs() < 1e-6, "faces down towards the last click");
         assert_eq!(w.selection, Selection::Waypoint { path: 0, index: 6 });
     });
+
+    // Enter ends the session; further clicks select instead of adding.
+    cx.simulate_keystrokes("enter");
+    click(&ws, cx, 2000., 1800.);
+    ws.read_with(cx, |w, _| {
+        assert_eq!(w.pending, None);
+        assert_eq!(w.doc.paths[0].segments.len(), 6);
+    });
 }
 
 #[gpui::test]
 fn dragging_a_waypoint_is_one_undo_step(cx: &mut TestAppContext) {
     let (ws, cx) = setup(cx);
+    cx.simulate_keystrokes("p");
     click(&ws, cx, 300., 300.);
     click(&ws, cx, 1200., 300.);
     click(&ws, cx, 1200., 1000.);
+    cx.simulate_keystrokes("enter");
 
     drag(&ws, cx, (1200., 1000.), (1500., 1200.));
     ws.read_with(cx, |w, _| {
@@ -126,24 +138,25 @@ fn dragging_a_waypoint_is_one_undo_step(cx: &mut TestAppContext) {
 #[gpui::test]
 fn obstacle_on_the_path_is_reported(cx: &mut TestAppContext) {
     let (ws, cx) = setup(cx);
-    click(&ws, cx, 300., 1000.); // focuses the canvas, starts a path
+    cx.simulate_keystrokes("p");
+    click(&ws, cx, 300., 1000.);
+    click(&ws, cx, 2700., 1000.);
+    cx.simulate_keystrokes("enter");
+
+    // New obstacle is a one-shot: one drag draws it, then back to selecting.
     cx.simulate_keystrokes("o");
     drag(&ws, cx, (1400., 900.), (1600., 1100.));
-    cx.simulate_keystrokes("w");
-    click(&ws, cx, 2700., 1000.);
 
     ws.update(cx, |w, _| {
+        assert_eq!(w.pending, None);
         assert_eq!(w.doc.map.obstacles.len(), 1);
         let report = w.ensure_analysis().report.clone().expect("active path is analysed");
         assert_eq!(report.events, 1);
         assert_eq!(report.min_clearance.unwrap().0, 0.);
     });
 
-    // Delete the obstacle: the path is clear again.
-    ws.update(cx, |w, cx| {
-        w.selection = Selection::Obstacle(0);
-        cx.notify();
-    });
+    // The new obstacle is selected; deleting it clears the path again.
+    assert_eq!(ws.read_with(cx, |w, _| w.selection), Selection::Obstacle(0));
     cx.simulate_keystrokes("delete");
     cx.run_until_parked();
     ws.update(cx, |w, _| {

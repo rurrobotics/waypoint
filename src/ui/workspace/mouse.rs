@@ -2,11 +2,11 @@ use std::f64::consts::{PI, TAU};
 
 use gpui::{Context, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ScrollWheelEvent, Window, px};
 
-use super::{Drag, FinishShape, SegTool, ShapeTool, Tool, Workspace};
+use super::{Drag, FinishShape, Layer, Pending, SegTool, ShapeTool, Workspace};
 use crate::geom::path::{Arc, body_heading, travel_heading};
 use crate::geom::shape::is_convex;
 use crate::geom::{Path, Pose, SegmentKind, Shape, Vec2, vec2};
-use crate::model::{Obstacle, Region};
+use crate::model::{Obstacle, Region, RegionColor};
 use crate::ui::canvas::{self, HIT_RADIUS, Handle, Preview, Selection, Xform};
 use crate::ui::fields::Unit;
 
@@ -63,8 +63,8 @@ impl Workspace {
         }
         self.measure = None;
 
-        // Handles on the active path win in both editing tools.
-        if matches!(self.tool, Tool::Select | Tool::Waypoint)
+        // Handles on the active path win unless a shape or measurement is armed.
+        if matches!(self.pending, None | Some(Pending::DrawPath))
             && let Some(ai) = self.active_path
             && let Some(h) = canvas::hit_handle(&self.doc.paths[ai], &x, mouse)
         {
@@ -75,17 +75,19 @@ impl Workspace {
             return;
         }
 
-        match self.tool {
-            Tool::Select => self.select_at(world, mouse, &x),
-            Tool::Waypoint => self.place_waypoint(world, &e.modifiers),
-            Tool::Obstacle | Tool::Region => {
+        match self.pending {
+            None => self.select_at(world, mouse, &x),
+            // The first click of a double-click already added the last waypoint.
+            Some(Pending::DrawPath) if e.click_count >= 2 => self.pending = None,
+            Some(Pending::DrawPath) => self.place_waypoint(world, &e.modifiers),
+            Some(Pending::Shape { kind, .. }) => {
                 let p = self.snap_point(world, &e.modifiers);
-                match self.shape_tool {
+                match kind {
                     ShapeTool::Polygon => self.polygon_click(p, mouse, e.click_count, &x),
                     _ => self.drag = Drag::Create { start: p, current: p },
                 }
             }
-            Tool::Measure => {
+            Some(Pending::Measure) => {
                 let p = self.snap_point(world, &e.modifiers);
                 self.measure = Some((p, p));
                 self.drag = Drag::Measure;
@@ -162,17 +164,17 @@ impl Workspace {
             && (clicks >= 2 || x.to_screen(self.polygon[0]).distance(mouse) <= HIT_RADIUS);
         if closes {
             self.finish_polygon();
+            self.pending = None;
         } else if self.polygon.last() != Some(&p) {
             self.polygon.push(p);
         }
     }
 
     pub(super) fn finish_shape(&mut self, _: &FinishShape, _: &mut Window, cx: &mut Context<Self>) {
-        self.finish_polygon();
-        self.refresh(cx);
+        self.finish_pending(cx);
     }
 
-    fn finish_polygon(&mut self) {
+    pub(super) fn finish_polygon(&mut self) {
         let points = std::mem::take(&mut self.polygon);
         if points.len() < 3 {
             return;
@@ -184,12 +186,26 @@ impl Workspace {
         self.add_shape(Shape::Polygon { points });
     }
 
+    /// Colour for the next region: cycles through the palette.
+    fn next_region_color(&self) -> RegionColor {
+        RegionColor::ALL[self.doc.map.regions.len() % RegionColor::ALL.len()]
+    }
+
+    fn pending_layer(&self) -> Option<Layer> {
+        match self.pending {
+            Some(Pending::Shape { layer, .. }) => Some(layer),
+            _ => None,
+        }
+    }
+
     fn add_shape(&mut self, shape: Shape) {
         let before = self.doc.clone();
+        let color = self.next_region_color();
+        let region = self.pending_layer() == Some(Layer::Region);
         let map = &mut self.doc.map;
-        if self.tool == Tool::Region {
+        if region {
             let n = map.regions.len() + 1;
-            map.regions.push(Region { name: format!("Region {n}"), color: self.region_color, shape });
+            map.regions.push(Region { name: format!("Region {n}"), color, shape });
             self.selection = Selection::Region(map.regions.len() - 1);
         } else {
             let n = map.obstacles.len() + 1;
@@ -201,7 +217,8 @@ impl Workspace {
     }
 
     fn created_shape(&self, start: Vec2, current: Vec2) -> Option<Shape> {
-        match self.shape_tool {
+        let Some(Pending::Shape { kind, .. }) = self.pending else { return None };
+        match kind {
             ShapeTool::Rect => {
                 let d = current - start;
                 (d.x.abs() > 1. && d.y.abs() > 1.).then(|| Shape::rect_from_corners(start, current))
@@ -293,13 +310,15 @@ impl Workspace {
             Drag::Create { start, current } => {
                 if let Some(shape) = self.created_shape(start, current) {
                     self.add_shape(shape);
+                    self.pending = None;
                     self.refresh(cx);
                 }
             }
+            Drag::Measure => self.pending = None,
             Drag::Handle { .. } | Drag::Object { .. } | Drag::Scrub { .. } => {
                 self.end_drag_edit();
             }
-            Drag::None | Drag::Pan { .. } | Drag::Measure => {}
+            Drag::None | Drag::Pan { .. } => {}
         }
     }
 
@@ -411,7 +430,7 @@ impl Workspace {
                 region: self.region_preview(),
             };
         }
-        if self.tool == Tool::Waypoint
+        if self.pending == Some(Pending::DrawPath)
             && matches!(self.drag, Drag::None)
             && let (Some(hover), Some(path)) = (self.hover, self.active())
         {
@@ -425,7 +444,7 @@ impl Workspace {
         Preview::None
     }
 
-    fn region_preview(&self) -> Option<crate::model::RegionColor> {
-        (self.tool == Tool::Region).then_some(self.region_color)
+    fn region_preview(&self) -> Option<RegionColor> {
+        (self.pending_layer() == Some(Layer::Region)).then(|| self.next_region_color())
     }
 }

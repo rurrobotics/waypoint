@@ -514,6 +514,10 @@ impl Workspace {
                 .child(Self::info(t, "Length", format!("{:.3} m", path.length() / 1000.)))
                 .child(Self::info(t, "Segments", path.segments.len().to_string()))
                 .child(
+                    button_icon("extend-path", Some(Icon::Plus), "Add waypoints", false, t)
+                        .on_click(cx.listener(move |this, _, _, cx| this.extend_path(pi, cx))),
+                )
+                .child(
                     button_icon("delete-path", Some(Icon::Trash), "Delete path", true, t).on_click(cx.listener(
                         move |this, _, _, cx| {
                             this.edit_doc(cx, |d| {

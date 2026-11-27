@@ -3,7 +3,7 @@
 use gpui::{Entity, Modifiers, MouseButton, Point, TestAppContext, VisualTestContext, point, px};
 
 use super::{Pending, SegTool, Workspace};
-use crate::geom::{SegmentKind, vec2};
+use crate::geom::{SegmentKind, Shape, vec2};
 use crate::theme::Theme;
 use crate::ui::canvas::Selection;
 use crate::ui::fields::Field;
@@ -38,16 +38,20 @@ fn click(ws: &Entity<Workspace>, cx: &mut VisualTestContext, x: f64, y: f64) {
 }
 
 fn drag(ws: &Entity<Workspace>, cx: &mut VisualTestContext, from: (f64, f64), to: (f64, f64)) {
+    drag_with(ws, cx, from, to, Modifiers::none());
+}
+
+fn drag_with(ws: &Entity<Workspace>, cx: &mut VisualTestContext, from: (f64, f64), to: (f64, f64), m: Modifiers) {
     let a = at(ws, cx, from.0, from.1);
     let b = at(ws, cx, to.0, to.1);
-    cx.simulate_mouse_move(a, None, Modifiers::none());
-    cx.simulate_mouse_down(a, MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_move(a, None, m);
+    cx.simulate_mouse_down(a, MouseButton::Left, m);
     for i in 1..=8 {
         let t = i as f32 / 8.;
         let p = point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
-        cx.simulate_mouse_move(p, MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_move(p, MouseButton::Left, m);
     }
-    cx.simulate_mouse_up(b, MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_up(b, MouseButton::Left, m);
     cx.run_until_parked();
 }
 
@@ -179,4 +183,28 @@ fn editing_a_field_by_typing(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("ctrl-z");
     cx.run_until_parked();
     ws.read_with(cx, |w, _| assert_eq!(w.doc.robot.length, 300.));
+}
+
+#[gpui::test]
+fn shift_drag_draws_a_square_region(cx: &mut TestAppContext) {
+    let (ws, cx) = setup(cx);
+    cx.simulate_keystrokes("r");
+    drag_with(&ws, cx, (500., 500.), (900., 700.), Modifiers::shift());
+    cx.simulate_keystrokes("r");
+    drag(&ws, cx, (1500., 500.), (1900., 700.));
+
+    ws.read_with(cx, |w, _| {
+        let sizes: Vec<_> = w
+            .doc
+            .map
+            .regions
+            .iter()
+            .map(|r| match r.shape {
+                Shape::Rect { size, .. } => size,
+                _ => panic!("expected rectangles"),
+            })
+            .collect();
+        assert_eq!(sizes, [vec2(400., 400.), vec2(400., 200.)]);
+        assert_eq!(w.pending, None);
+    });
 }

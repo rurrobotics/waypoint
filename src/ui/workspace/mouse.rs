@@ -220,8 +220,13 @@ impl Workspace {
         let Some(Pending::Shape { kind, .. }) = self.pending else { return None };
         match kind {
             ShapeTool::Rect => {
-                let d = current - start;
-                (d.x.abs() > 1. && d.y.abs() > 1.).then(|| Shape::rect_from_corners(start, current))
+                let mut d = current - start;
+                // Shift makes a square with the larger side.
+                if self.modifiers.shift {
+                    let side = d.x.abs().max(d.y.abs());
+                    d = vec2(side.copysign(d.x), side.copysign(d.y));
+                }
+                (d.x.abs() > 1. && d.y.abs() > 1.).then(|| Shape::rect_from_corners(start, start + d))
             }
             ShapeTool::Circle => {
                 let r = start.distance(current);

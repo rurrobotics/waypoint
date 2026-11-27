@@ -207,7 +207,7 @@ impl Workspace {
         window.focus(&canvas_focus);
 
         Self {
-            doc: Doc::default(),
+            doc: crate::model::template::default().doc,
             history: History::new(200),
             drag_snapshot: None,
             project_path: None,
@@ -643,7 +643,13 @@ impl Workspace {
         let bounds_cell = self.canvas_bounds.clone();
         let view = self.view;
         let size = self.doc.map.size() * view.zoom;
-        let background = self.doc.map.background.clone().filter(|_| view.zoom > 0.);
+        // A shipped template's image is embedded; anything else is a file.
+        let background = self.doc.map.background.clone().filter(|_| view.zoom > 0.).map(|bg| {
+            match self.doc.map.background_asset() {
+                Some(asset) => gpui::ImageSource::from(asset.to_string()),
+                None => gpui::ImageSource::from(bg),
+            }
+        });
         let cursor = match (&self.drag, self.pending) {
             (Drag::Pan { .. } | Drag::Handle { .. } | Drag::Object { .. }, _) => CursorStyle::ClosedHand,
             (_, None) => CursorStyle::Arrow,

@@ -27,8 +27,9 @@ It's written in Rust with [GPUI](https://www.gpui.rs/) and runs on Linux
 - **The table.** Load the year's playground image as the background, then draw
   obstacles and coloured regions of interest (start zones, scoring areas…).
   Rectangles, circles and convex polygons; hold **Shift** for squares.
-- **Templates.** Start new projects from a template: a blank 3000 × 2000 table,
-  or your own saved with **Save as template** (table, obstacles, regions,
+- **Templates.** The app opens on the default template shipped with it
+  (`assets/templates/default.json`), and **New** lists every shipped template
+  plus your own, saved with **Save as template** (table, obstacles, regions,
   background and robot).
 - **No modes.** The canvas always selects and drags. **New path**,
   **New obstacle**, **New region** and **Measure** are one-shot actions.
@@ -134,6 +135,23 @@ sampled or derived; follow the segments from `start` to reconstruct the path.
 | `hermite` | `to: {x, y, theta}`, `t0`, `t1` | Cubic Hermite curve from the current pose to `to`. The tangents point along the travel direction at each end, with magnitudes `t0` and `t1` (mm). |
 
 `reverse: true` appears only on segments driven backwards.
+
+### Shipped templates
+
+Every `.json` file in [`assets/templates/`](assets/templates) is built into the
+app; `default.json` is what the app opens on and what new projects start from.
+They are project files without paths. To update the default table for a new
+season:
+
+1. Draw the table in the app (background, obstacles, regions, robot) and use
+   **Save as template**, or edit the JSON by hand.
+2. Copy the result over `assets/templates/default.json`.
+3. To ship the playground image, put it in `assets/templates/` and set
+   `"background": "<image file name>"` in the template. It is embedded in the
+   binary, so it works on every machine.
+
+Rebuild to pick up the change; `cargo test` checks that every shipped
+template parses.
 
 ### Where things are stored
 

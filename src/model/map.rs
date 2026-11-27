@@ -80,7 +80,16 @@ impl Default for Map {
     }
 }
 
+/// Prefix of a background that is embedded in the app (a shipped template's
+/// image) rather than a file on disk, e.g. `asset:templates/eurobot.png`.
+pub const ASSET_PREFIX: &str = "asset:";
+
 impl Map {
+    /// The embedded asset path of the background, if it isn't a file on disk.
+    pub fn background_asset(&self) -> Option<&str> {
+        self.background.as_ref()?.to_str()?.strip_prefix(ASSET_PREFIX)
+    }
+
     pub fn size(&self) -> Vec2 {
         vec2(self.width, self.height)
     }

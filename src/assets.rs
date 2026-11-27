@@ -1,4 +1,5 @@
-//! Embedded assets: Lucide icons (ISC, see `assets/icons/LICENSE-lucide.txt`).
+//! Embedded assets: Lucide icons (ISC, see `assets/icons/LICENSE-lucide.txt`)
+//! and the shipped project templates in `assets/templates/` (see `build.rs`).
 
 use std::borrow::Cow;
 
@@ -65,15 +66,22 @@ icons! {
     Layers => "layers",
 }
 
+include!(concat!(env!("OUT_DIR"), "/templates.rs"));
+
+/// An embedded file by asset path (`icons/…` or `templates/…`).
+pub fn get(path: &str) -> Option<&'static [u8]> {
+    ICON_FILES.iter().chain(TEMPLATE_FILES).find(|(p, _)| *p == path).map(|(_, bytes)| *bytes)
+}
+
 pub struct Assets;
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
-        Ok(ICON_FILES.iter().find(|(p, _)| *p == path).map(|(_, bytes)| Cow::Borrowed(*bytes)))
+        Ok(get(path).map(Cow::Borrowed))
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
-        Ok(ICON_FILES.iter().filter(|(p, _)| p.starts_with(path)).map(|(p, _)| (*p).into()).collect())
+        Ok(ICON_FILES.iter().chain(TEMPLATE_FILES).filter(|(p, _)| p.starts_with(path)).map(|(p, _)| (*p).into()).collect())
     }
 }
 
@@ -88,5 +96,6 @@ mod tests {
             assert!(std::str::from_utf8(&bytes).unwrap().contains("<svg"), "{path}");
         }
         assert!(Assets.load(Icon::Route.path()).unwrap().is_some());
+        assert!(get("templates/default.json").is_some(), "the default template is shipped");
     }
 }

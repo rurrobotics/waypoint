@@ -13,7 +13,10 @@ fn setup(cx: &mut TestAppContext) -> (Entity<Workspace>, &mut VisualTestContext)
     let (ws, cx) = cx.add_window_view(|window, cx| {
         Theme::sync(window, cx);
         super::bind_keys(cx);
-        Workspace::new(window, cx)
+        let mut w = Workspace::new(window, cx);
+        // Independent of what the shipped default template contains.
+        w.doc = crate::model::Doc::default();
+        w
     });
     // The first frame records the canvas bounds, the next one fits the table.
     for _ in 0..2 {
@@ -291,8 +294,8 @@ fn new_project_from_a_saved_template(cx: &mut TestAppContext) {
     let template = ws.read_with(cx, |w, _| {
         assert!(w.new_menu);
         let all = crate::model::template::list(w.templates_dir.as_deref());
-        assert_eq!(all.len(), 2);
-        all[1].clone()
+        assert_eq!(all.len(), crate::model::template::shipped().len() + 1);
+        all.last().unwrap().clone()
     });
     ws.update_in(cx, |w, window, cx| w.new_from_template(template, window, cx));
     cx.run_until_parked();
@@ -304,4 +307,14 @@ fn new_project_from_a_saved_template(cx: &mut TestAppContext) {
         assert!(w.project_path.is_none());
     });
     std::fs::remove_dir_all(&dir).ok();
+}
+
+#[gpui::test]
+fn starts_from_the_shipped_default_template(cx: &mut TestAppContext) {
+    let (ws, _cx) = cx.add_window_view(|window, cx| {
+        Theme::sync(window, cx);
+        Workspace::new(window, cx)
+    });
+    let expected = crate::model::template::default().doc;
+    ws.read_with(_cx, |w, _| assert_eq!(w.doc, expected));
 }

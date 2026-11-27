@@ -21,7 +21,8 @@ Every commit must build, pass `cargo test`, and be clippy-clean.
 src/
   main.rs          app start: fonts, assets, key bindings, window
   theme.rs         neutral light/dark palette (Theme global), fonts, RADIUS
-  assets.rs        embedded Lucide icons (Icon enum + gpui AssetSource)
+  assets.rs        embedded icons (Icon enum) + shipped templates, served by the AssetSource
+build.rs           embeds every file in assets/templates/ (generates TEMPLATE_FILES)
   titlebar.rs      window frame: the toolbar doubles as the title bar; CSD controls/resize
   geom/            pure geometry, no gpui
     vec.rs         Vec2 (serialised as [x, y]), Pose, wrap_angle
@@ -33,7 +34,7 @@ src/
     map.rs         Map, Obstacle, Region, RegionColor, Origin
     project.rs     Doc (map + robot + paths, the undo unit), Project JSON file
     history.rs     snapshot undo/redo
-    template.rs    built-in + user templates (project JSON without paths)
+    template.rs    shipped (assets/templates, embedded) + user templates
     mod.rs         config_dir()
   export/          Exporter trait; json.rs writes segments with parameters only
   ui/
@@ -110,6 +111,12 @@ change the initial value in `Workspace::new`, take the screenshot, and revert.
 
 - **gpui 0.2.2 from crates.io.** APIs differ from Zed's main branch: check the
   source in `~/.cargo/registry/src/*/gpui-0.2.2` rather than guessing.
+- **Shipped templates** are every `.json` in `assets/templates/`, embedded by
+  `build.rs`; `default.json` is the startup/new-project template. A relative
+  `background` in one refers to an image shipped beside it and becomes
+  `asset:templates/<file>` (`map::ASSET_PREFIX`), loaded through the
+  `AssetSource` rather than from disk. UI tests reset `doc` to
+  `Doc::default()`, so they don't depend on the template's contents.
 - **libc pin.** `Cargo.toml` pins `libc < 0.2.190` because gpui's
   `xattr 0.2.3` uses `libc::ENOATTR`, which newer libc removed on Linux. Drop it
   when gpui is updated.

@@ -37,6 +37,7 @@ impl Project {
         let dir = path.parent().unwrap_or(FsPath::new(""));
         if let Some(p) = &mut project.doc.map.background
             && p.is_relative()
+            && !p.to_string_lossy().starts_with(super::map::ASSET_PREFIX)
         {
             *p = dir.join(&*p);
         }

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "map": {
+    "name": "Eurobot",
+    "year": 2026,
+    "width": 3000.0,
+    "height": 2000.0,
+    "origin": "bottom-left",
+    "obstacles": [],
+    "regions": []
+  },
+  "robot": {
+    "length": 300.0,
+    "width": 250.0,
+    "offset": [0.0, 0.0],
+    "margin": 20.0
+  },
+  "paths": []
+}

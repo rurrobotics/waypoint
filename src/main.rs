@@ -1,6 +1,8 @@
-// Geometry is wired into the UI in a later commit.
+// Wired into the UI in a later commit.
 #[allow(dead_code, unused_imports)]
 mod geom;
+#[allow(dead_code, unused_imports)]
+mod model;
 
 use gpui::{App, Application, Bounds, WindowBounds, WindowOptions, div, prelude::*, px, size};
 

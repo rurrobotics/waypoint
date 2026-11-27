@@ -157,7 +157,8 @@ fn titlebar(window: &Window, theme: &Theme, state: &TitlebarState, toolbar: impl
                 }
             })
         })
-        .child(div().flex().items_center().flex_1().min_w_0().h_full().child(toolbar))
+        // Right padding keeps the last toolbar button off the window controls.
+        .child(div().flex().items_center().flex_1().min_w_0().h_full().pr_2().child(toolbar))
         .when(client, |d| {
             d.child(
                 div()

@@ -1,8 +1,51 @@
 //! Small building blocks: section labels, toggles, buttons and badges.
 
-use gpui::{Div, ElementId, FontWeight, Rgba, Stateful, div, prelude::*, px};
+use gpui::{
+    AnyView, App, Context, Div, ElementId, FontWeight, Hsla, Rgba, SharedString, Stateful, Svg, Window, div, prelude::*, px,
+    svg,
+};
 
+use crate::assets::Icon;
 use crate::theme::{FONT_MONO, RADIUS, Theme};
+
+/// An icon; svgs don't inherit the text colour, so it's passed explicitly.
+pub fn icon(icon: Icon, size: f32, color: impl Into<Hsla>) -> Svg {
+    svg().path(icon.path()).size(px(size)).flex_none().text_color(color.into())
+}
+
+/// Hover tooltip content.
+pub struct Tooltip(SharedString);
+
+impl Render for Tooltip {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = Theme::get(cx);
+        div().px_2().py_1().rounded(RADIUS).bg(t.fg).text_color(t.bg).text_size(px(12.)).child(self.0.clone())
+    }
+}
+
+pub fn tooltip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+    let text = text.into();
+    move |_, cx| cx.new(|_| Tooltip(text.clone())).into()
+}
+
+/// Square icon-only button with a tooltip; `active` fills it like a pressed toggle.
+pub fn icon_button(id: impl Into<ElementId>, i: Icon, tip: &str, active: bool, t: &Theme) -> Stateful<Div> {
+    let t = *t;
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .justify_center()
+        .size(px(28.))
+        .flex_none()
+        .rounded(RADIUS)
+        .cursor_pointer()
+        .text_color(if active { t.accent } else { t.fg })
+        .when(active, |d| d.bg(crate::theme::alpha(t.accent, 0.15)))
+        .when(!active, move |d| d.hover(move |s| s.bg(t.elevated)))
+        .tooltip(tooltip(tip.to_string()))
+        .child(icon(i, 16., if active { t.accent } else { t.fg }))
+}
 
 /// Small semibold section heading.
 pub fn section_title(title: &str, t: &Theme) -> Div {
@@ -21,6 +64,10 @@ pub fn label(t: &Theme, text: impl Into<gpui::SharedString>) -> Div {
 
 /// Toggle: subtle outline, filled with the accent when active.
 pub fn chip(id: impl Into<ElementId>, text: &str, active: bool, t: &Theme) -> Stateful<Div> {
+    chip_icon(id, None, text, active, t)
+}
+
+pub fn chip_icon(id: impl Into<ElementId>, i: Option<Icon>, text: &str, active: bool, t: &Theme) -> Stateful<Div> {
     let t = *t;
     div()
         .id(id)
@@ -35,11 +82,16 @@ pub fn chip(id: impl Into<ElementId>, text: &str, active: bool, t: &Theme) -> St
         .cursor_pointer()
         .when(active, |d| d.bg(t.accent).border_color(t.accent).text_color(t.accent_fg))
         .when(!active, move |d| d.border_color(t.border).hover(move |s| s.bg(t.elevated)))
+        .when_some(i, |d, i| d.child(icon(i, 14., if active { t.accent_fg } else { t.fg })))
         .child(text.to_string())
 }
 
 /// Outline button; `danger` tints the hover red.
 pub fn button(id: impl Into<ElementId>, text: &str, danger: bool, t: &Theme) -> Stateful<Div> {
+    button_icon(id, None, text, danger, t)
+}
+
+pub fn button_icon(id: impl Into<ElementId>, i: Option<Icon>, text: &str, danger: bool, t: &Theme) -> Stateful<Div> {
     let t = *t;
     div()
         .id(id)
@@ -54,12 +106,16 @@ pub fn button(id: impl Into<ElementId>, text: &str, danger: bool, t: &Theme) -> 
         .border_color(t.border)
         .text_size(px(12.))
         .cursor_pointer()
+        .group("button")
         .hover(move |s| if danger { s.bg(t.danger).border_color(t.danger).text_color(t.danger_fg) } else { s.bg(t.elevated) })
+        .when_some(i, |d, i| {
+            d.child(icon(i, 14., t.fg).when(danger, |s| s.group_hover("button", move |s| s.text_color(t.danger_fg))))
+        })
         .child(text.to_string())
 }
 
 /// Filled primary button.
-pub fn primary_button(id: impl Into<ElementId>, text: &str, t: &Theme) -> Stateful<Div> {
+pub fn primary_button(id: impl Into<ElementId>, i: Option<Icon>, text: &str, t: &Theme) -> Stateful<Div> {
     div()
         .id(id)
         .flex()
@@ -75,6 +131,7 @@ pub fn primary_button(id: impl Into<ElementId>, text: &str, t: &Theme) -> Statef
         .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
         .hover(|s| s.opacity(0.9))
+        .when_some(i, |d, i| d.child(icon(i, 14., t.accent_fg)))
         .child(text.to_string())
 }
 

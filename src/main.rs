@@ -1,6 +1,7 @@
 // Release builds on Windows are GUI apps: no console window.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod assets;
 mod export;
 mod geom;
 mod model;
@@ -19,7 +20,7 @@ use theme::Theme;
 use ui::workspace::{self, Workspace};
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
+    Application::new().with_assets(assets::Assets).run(|cx: &mut App| {
         cx.text_system()
             .add_fonts(theme::FONTS.iter().map(|f| Cow::Borrowed(*f)).collect())
             .expect("embedded fonts are valid");

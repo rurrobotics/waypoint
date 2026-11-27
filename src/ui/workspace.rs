@@ -22,7 +22,8 @@ use crate::theme::{FONT_MONO, FONT_SANS, RADIUS, Theme, alpha};
 use crate::titlebar::{TitlebarState, window_frame};
 use crate::ui::canvas::{self, Frame, Handle, Selection, View, Xform};
 use crate::ui::fields::Edit;
-use crate::ui::widgets::{badge, button, chip, label, section_title, primary_button};
+use crate::assets::Icon;
+use crate::ui::widgets::{badge, button_icon, chip_icon, icon_button, label, primary_button, section_title};
 
 /// Sampling step for drawing and collision checking (mm).
 const ANALYSIS_STEP: f64 = 5.;
@@ -419,23 +420,23 @@ impl Workspace {
     // ---- rendering -------------------------------------------------------------
 
     fn render_toolbar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let tool_chip = |id: &'static str, label: &str, tool: Tool, cx: &mut Context<Self>| {
-            chip(id, label, self.tool == tool, t)
+        let tool_chip = |id: &'static str, i: Icon, label: &str, tool: Tool, cx: &mut Context<Self>| {
+            chip_icon(id, Some(i), label, self.tool == tool, t)
                 .on_click(cx.listener(move |this, _, _, cx| this.set_tool(tool, cx)))
         };
-        let sub = |id: &'static str, label: &str, active: bool| chip(id, label, active, t);
+        let sub = |id: &'static str, i: Icon, label: &str, active: bool| chip_icon(id, Some(i), label, active, t);
 
         let mut subtools = div().flex().items_center().gap_1();
         match self.tool {
             Tool::Waypoint => {
-                for (id, label, s) in [
-                    ("seg-straight", "Straight", SegTool::Straight),
-                    ("seg-turn", "Turn in place", SegTool::TurnInPlace),
-                    ("seg-arc", "Turn arc", SegTool::TurnArc),
-                    ("seg-hermite", "Hermite", SegTool::Hermite),
+                for (id, i, label, s) in [
+                    ("seg-straight", Icon::MoveRight, "Straight", SegTool::Straight),
+                    ("seg-turn", Icon::RotateCw, "Turn in place", SegTool::TurnInPlace),
+                    ("seg-arc", Icon::CornerUpRight, "Arc", SegTool::TurnArc),
+                    ("seg-hermite", Icon::Spline, "Hermite", SegTool::Hermite),
                 ] {
                     subtools = subtools.child(
-                        sub(id, label, self.seg_tool == s)
+                        sub(id, i, label, self.seg_tool == s)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.seg_tool = s;
                                 cx.notify();
@@ -444,19 +445,19 @@ impl Workspace {
                 }
                 subtools = subtools
                     .child(div().w(px(8.)))
-                    .child(chip("reverse", "Reverse", self.reverse, t).on_click(
+                    .child(chip_icon("reverse", Some(Icon::Reverse), "Reverse", self.reverse, t).on_click(
                         cx.listener(|this, _, _, cx| {
                             this.reverse = !this.reverse;
                             cx.notify();
                         }),
                     ))
-                    .child(chip("auto-turn", "Auto turn", self.auto_turn, t).on_click(
+                    .child(chip_icon("auto-turn", None, "Auto turn", self.auto_turn, t).on_click(
                         cx.listener(|this, _, _, cx| {
                             this.auto_turn = !this.auto_turn;
                             cx.notify();
                         }),
                     ))
-                    .child(button("new-path", "+ New path", true, t).on_click(cx.listener(
+                    .child(button_icon("new-path", Some(Icon::Plus), "New path", false, t).on_click(cx.listener(
                         |this, _, _, cx| {
                             this.active_path = None;
                             this.selection = Selection::None;
@@ -466,12 +467,12 @@ impl Workspace {
                     )));
             }
             Tool::Obstacle | Tool::Region => {
-                for (id, label, s) in [
-                    ("shape-rect", "Rect", ShapeTool::Rect),
-                    ("shape-circle", "Circle", ShapeTool::Circle),
-                    ("shape-poly", "Polygon", ShapeTool::Polygon),
+                for (id, i, label, s) in [
+                    ("shape-rect", Icon::Square, "Rect", ShapeTool::Rect),
+                    ("shape-circle", Icon::Circle, "Circle", ShapeTool::Circle),
+                    ("shape-poly", Icon::Pentagon, "Polygon", ShapeTool::Polygon),
                 ] {
-                    subtools = subtools.child(sub(id, label, self.shape_tool == s).on_click(cx.listener(
+                    subtools = subtools.child(sub(id, i, label, self.shape_tool == s).on_click(cx.listener(
                         move |this, _, _, cx| {
                             this.shape_tool = s;
                             this.polygon.clear();
@@ -504,8 +505,7 @@ impl Workspace {
             Tool::Select | Tool::Measure => {}
         }
 
-        let snap_label =
-            if self.snap == 0. { "Snap off".to_string() } else { format!("Snap {}", canvas::format_mm(self.snap)) };
+        let snap_label = if self.snap == 0. { "Off".to_string() } else { format!("{} mm", canvas::format_mm(self.snap)) };
 
         div()
             .flex()
@@ -517,28 +517,28 @@ impl Workspace {
             .py_2()
             .border_b_1()
             .border_color(t.border)
-            .child(tool_chip("tool-select", "Select V", Tool::Select, cx))
-            .child(tool_chip("tool-waypoint", "Waypoint W", Tool::Waypoint, cx))
-            .child(tool_chip("tool-obstacle", "Obstacle O", Tool::Obstacle, cx))
-            .child(tool_chip("tool-region", "Region R", Tool::Region, cx))
-            .child(tool_chip("tool-measure", "Measure M", Tool::Measure, cx))
+            .child(tool_chip("tool-select", Icon::Pointer, "Select", Tool::Select, cx))
+            .child(tool_chip("tool-waypoint", Icon::Route, "Waypoint", Tool::Waypoint, cx))
+            .child(tool_chip("tool-obstacle", Icon::Square, "Obstacle", Tool::Obstacle, cx))
+            .child(tool_chip("tool-region", Icon::SquareDashed, "Region", Tool::Region, cx))
+            .child(tool_chip("tool-measure", Icon::Ruler, "Measure", Tool::Measure, cx))
             .child(div().w(px(2.)).h(px(22.)).mx_2().bg(t.border))
             .child(subtools)
             .child(div().flex_1())
-            .child(chip("snap", &snap_label, self.snap > 0., t).on_click(cx.listener(
+            .child(chip_icon("snap", Some(Icon::Magnet), &snap_label, self.snap > 0., t).on_click(cx.listener(
                 |this, _, _, cx| {
                     let i = SNAP_STEPS.iter().position(|&s| s == this.snap).unwrap_or(0);
                     this.snap = SNAP_STEPS[(i + 1) % SNAP_STEPS.len()];
                     cx.notify();
                 },
             )))
-            .child(chip("sweep", "Sweep", self.show_sweep, t).on_click(cx.listener(
+            .child(icon_button("sweep", if self.show_sweep { Icon::Eye } else { Icon::EyeOff }, "Show robot sweep", self.show_sweep, t).on_click(cx.listener(
                 |this, _, _, cx| {
                     this.show_sweep = !this.show_sweep;
                     cx.notify();
                 },
             )))
-            .child(button("fit", "Fit F", false, t).on_click(cx.listener(|this, _, w, cx| {
+            .child(icon_button("fit", Icon::Fit, "Fit table (F)", false, t).on_click(cx.listener(|this, _, w, cx| {
                 this.fit_view(&FitView, w, cx)
             })))
     }
@@ -548,17 +548,24 @@ impl Workspace {
             .flex()
             .items_center()
             .gap_1()
-            .child(button("file-new", "New", false, t).on_click(cx.listener(|this, _, w, cx| {
+            .child(icon_button("undo", Icon::Undo, "Undo (Ctrl+Z)", false, t).on_click(cx.listener(|this, _, w, cx| {
+                this.undo(&Undo, w, cx)
+            })))
+            .child(icon_button("redo", Icon::Redo, "Redo (Ctrl+Shift+Z)", false, t).on_click(cx.listener(|this, _, w, cx| {
+                this.redo(&Redo, w, cx)
+            })))
+            .child(div().w(px(1.)).h(px(18.)).mx_1().bg(t.border))
+            .child(icon_button("file-new", Icon::FilePlus, "New project (Ctrl+N)", false, t).on_click(cx.listener(|this, _, w, cx| {
                 this.new_project(&NewProject, w, cx)
             })))
-            .child(button("file-open", "Open", false, t).on_click(cx.listener(|this, _, w, cx| {
+            .child(icon_button("file-open", Icon::FolderOpen, "Open project (Ctrl+O)", false, t).on_click(cx.listener(|this, _, w, cx| {
                 this.open_project(&OpenProject, w, cx)
             })))
-            .child(button("file-save", "Save", false, t).on_click(cx.listener(|this, _, w, cx| {
+            .child(icon_button("file-save", Icon::Save, "Save project (Ctrl+S)", false, t).on_click(cx.listener(|this, _, w, cx| {
                 this.save_project(&SaveProject, w, cx)
             })))
             .child(
-                primary_button("file-export", "Export JSON", t)
+                primary_button("file-export", Some(Icon::Download), "Export", t)
                     .on_click(cx.listener(|this, _, w, cx| this.export_json(&ExportJson, w, cx))),
             )
     }

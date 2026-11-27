@@ -10,6 +10,7 @@ use gpui::{
     Point, ResizeEdge, Rgba, Size, Window, canvas, div, point, prelude::*, px, transparent_black,
 };
 
+use crate::assets::Icon;
 use crate::theme::{FONT_SANS, Theme};
 
 const TITLEBAR_HEIGHT: Pixels = px(44.);
@@ -196,27 +197,29 @@ fn titlebar(
                     .h_full()
                     .text_sm()
                     .when(controls.minimize, |d| {
-                        d.child(control_button("minimize", "–", theme.fg, theme.bg, |w| {
+                        d.child(control_button("minimize", Icon::Minus, theme.fg, theme.elevated, theme.fg, |w| {
                             w.minimize_window()
                         }))
                     })
                     .when(controls.maximize, |d| {
                         d.child(control_button(
                             "maximize",
-                            if maximized { "❐" } else { "□" },
+                            if maximized { Icon::Restore } else { Icon::Maximize },
                             theme.fg,
-                            theme.bg,
+                            theme.elevated,
+                            theme.fg,
                             |w| w.zoom_window(),
                         ))
                     })
-                    .child(control_button("close", "✕", theme.danger, theme.danger_fg, |w| w.remove_window())),
+                    .child(control_button("close", Icon::Close, theme.fg, theme.danger, theme.danger_fg, |w| w.remove_window())),
             )
         })
 }
 
 fn control_button(
     id: &'static str,
-    icon: &'static str,
+    icon: Icon,
+    fg: Rgba,
     hover_bg: Rgba,
     hover_fg: Rgba,
     action: fn(&mut Window),
@@ -235,7 +238,11 @@ fn control_button(
             cx.stop_propagation();
             action(window);
         })
-        .child(icon)
+        .group("window-control")
+        .child(
+            crate::ui::widgets::icon(icon, 14., fg)
+                .group_hover("window-control", move |s| s.text_color(hover_fg)),
+        )
 }
 
 fn resize_edge(pos: Point<Pixels>, size: Size<Pixels>) -> Option<ResizeEdge> {

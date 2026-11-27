@@ -7,7 +7,8 @@ use crate::model::{Origin, RegionColor};
 use crate::theme::{FONT_MONO, RADIUS, Theme, alpha};
 use crate::ui::canvas::{self, Selection};
 use crate::ui::fields::{Edit, Field, Outcome, Unit, parse_number};
-use crate::ui::widgets::{button, chip, label, section, section_title};
+use crate::assets::Icon;
+use crate::ui::widgets::{button, chip, label, section, section_title, button_icon, chip_icon};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -404,15 +405,19 @@ impl Workspace {
         };
 
         let mut kinds = div().flex().flex_wrap().gap_1();
-        for (label, k) in [("Straight", Kind::Straight), ("Turn", Kind::Turn), ("Hermite", Kind::Hermite)] {
+        for (label, i, k) in [
+            ("Straight", Icon::MoveRight, Kind::Straight),
+            ("Turn", Icon::CornerUpRight, Kind::Turn),
+            ("Hermite", Icon::Spline, Kind::Hermite),
+        ] {
             kinds = kinds.child(
-                chip(("kind", k as usize), label, kind == k, t)
+                chip_icon(("kind", k as usize), Some(i), label, kind == k, t)
                     .on_click(cx.listener(move |this, _, _, cx| this.set_kind(pi, si, k, cx))),
             );
         }
         let reverse = seg.reverse;
         kinds = kinds.child(
-            chip("seg-reverse", "Reverse", reverse, t).on_click(cx.listener(
+            chip_icon("seg-reverse", Some(Icon::Reverse), "Reverse", reverse, t).on_click(cx.listener(
                 move |this, _, _, cx| {
                     this.edit_doc(cx, |d| {
                         let seg = &mut d.paths[pi].segments[si];
@@ -442,7 +447,7 @@ impl Workspace {
                 div()
                     .flex()
                     .gap_1()
-                    .child(chip("in-place", "In place", in_place, t).on_click(
+                    .child(chip_icon("in-place", Some(Icon::RotateCw), "In place", in_place, t).on_click(
                         cx.listener(move |this, _, _, cx| {
                             this.edit_doc(cx, |d| {
                                 if let SegmentKind::Turn { radius, auto, .. } = &mut d.paths[pi].segments[si].kind {
@@ -493,7 +498,7 @@ impl Workspace {
                 d.child(label(t, "Heading jump at the start — add a turn").text_color(t.warning))
             })
             .child(
-                button("delete-waypoint", "Delete waypoint", true, t)
+                button_icon("delete-waypoint", Some(Icon::Trash), "Delete waypoint", true, t)
                     .on_click(cx.listener(|this, _, w, cx| this.delete_selection(&super::DeleteSelection, w, cx))),
             );
         Some(s)
@@ -509,7 +514,7 @@ impl Workspace {
                 .child(Self::info(t, "Length", format!("{:.3} m", path.length() / 1000.)))
                 .child(Self::info(t, "Segments", path.segments.len().to_string()))
                 .child(
-                    button("delete-path", "Delete path", true, t).on_click(cx.listener(
+                    button_icon("delete-path", Some(Icon::Trash), "Delete path", true, t).on_click(cx.listener(
                         move |this, _, _, cx| {
                             this.edit_doc(cx, |d| {
                                 d.paths.remove(pi);
@@ -562,7 +567,7 @@ impl Workspace {
             s = s.child(Self::info(t, "Vertices", points.len().to_string()));
         }
         Some(s.child(
-            button("delete-shape", "Delete", true, t)
+            button_icon("delete-shape", Some(Icon::Trash), "Delete", true, t)
                 .on_click(cx.listener(|this, _, w, cx| this.delete_selection(&super::DeleteSelection, w, cx))),
         ))
     }

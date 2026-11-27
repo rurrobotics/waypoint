@@ -77,7 +77,14 @@ pub fn window_frame(
         .when(!tiling.bottom, |d| d.pb(SHADOW_SIZE))
         .when(!tiling.left, |d| d.pl(SHADOW_SIZE))
         .when(!tiling.right, |d| d.pr(SHADOW_SIZE))
-        .on_mouse_move(|_, window, _| window.refresh())
+        // Redraw for the resize cursor only on the edges. Mouse moves over the
+        // body must keep propagating: the app handles its drags (panning,
+        // measuring, handles…) in listeners outside this frame.
+        .on_mouse_move(|e, window, _| {
+            if resize_edge(e.position, window.window_bounds().get_bounds().size).is_some() {
+                window.refresh();
+            }
+        })
         .on_mouse_down(MouseButton::Left, |e, window, _| {
             let size = window.window_bounds().get_bounds().size;
             if let Some(edge) = resize_edge(e.position, size) {
@@ -98,9 +105,7 @@ pub fn window_frame(
                         spread_radius: px(0.),
                         offset: point(px(0.), px(0.)),
                     }])
-                })
-                // Keep the resize cursor from leaking into the window body.
-                .on_mouse_move(|_, _, cx| cx.stop_propagation()),
+                }),
         )
         .into_any_element()
 }

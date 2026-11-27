@@ -318,3 +318,17 @@ fn starts_from_the_shipped_default_template(cx: &mut TestAppContext) {
     let expected = crate::model::template::default().doc;
     ws.read_with(_cx, |w, _| assert_eq!(w.doc, expected));
 }
+
+#[gpui::test]
+fn measure_drag_shows_distance(cx: &mut TestAppContext) {
+    let (ws, cx) = setup(cx);
+    cx.simulate_keystrokes("m");
+    assert_eq!(ws.read_with(cx, |w, _| w.pending), Some(Pending::Measure));
+    drag(&ws, cx, (500., 500.), (1500., 500.));
+    ws.read_with(cx, |w, _| {
+        let (a, b) = w.measure.expect("measurement kept after release");
+        assert_eq!(a.distance(b), 1000.);
+        assert!(matches!(w.preview(), crate::ui::canvas::Preview::Measure { .. }));
+        assert_eq!(w.pending, None);
+    });
+}

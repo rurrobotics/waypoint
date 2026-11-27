@@ -30,7 +30,6 @@ pub enum Field {
     MapYear,
     MapWidth,
     MapHeight,
-    SampleStep,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,7 +61,6 @@ impl Field {
             RobotOffsetY => "Offset y",
             RobotMargin => "Margin",
             MapYear => "Year",
-            SampleStep => "Step",
         }
     }
 

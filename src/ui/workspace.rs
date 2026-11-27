@@ -158,8 +158,6 @@ pub struct Workspace {
     auto_turn: bool,
     snap: f64,
     show_sweep: bool,
-    /// Sample spacing for exports (mm).
-    export_step: f64,
 
     active_path: Option<usize>,
     selection: Selection,
@@ -222,7 +220,6 @@ impl Workspace {
             auto_turn: true,
             snap: 10.,
             show_sweep: true,
-            export_step: 10.,
             active_path: None,
             selection: Selection::None,
             drag: Drag::None,

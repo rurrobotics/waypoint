@@ -3,7 +3,7 @@ use std::path::{Path as FsPath, PathBuf};
 use gpui::{Context, PathPromptOptions, PromptLevel, Window};
 
 use super::{ExportJson, NewProject, OpenMap, OpenProject, SaveMap, SaveProject, SaveProjectAs, Workspace};
-use crate::export::{ExportOptions, Exporter, JsonExporter};
+use crate::export::{Exporter, JsonExporter};
 use crate::model::{Doc, Map, Project, project::PROJECT_VERSION};
 use crate::ui::canvas::Selection;
 
@@ -205,8 +205,7 @@ impl Workspace {
             .and_then(|p| p.file_stem())
             .map_or("paths".to_string(), |s| s.to_string_lossy().into_owned());
         let suggested = format!("{stem}.{}", exporter.extension());
-        let options = ExportOptions { sample_step: Some(self.export_step) };
-        let text = match exporter.export(&self.doc, &options) {
+        let text = match exporter.export(&self.doc) {
             Ok(text) => text,
             Err(e) => {
                 self.set_status(format!("{e:#}"), true);

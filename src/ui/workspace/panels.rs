@@ -511,8 +511,7 @@ impl Workspace {
                             ))),
                     )
                     .child(section_title("Export", t))
-                    .child(self.fields(&[Field::SampleStep], t, cx))
-                    .child(label(t, "JSON includes segments and samples every step."))
+                    .child(label(t, "JSON with the start pose and every segment's parameters, as edited here."))
                     .child(
                         primary_button("project-export", Some(Icon::Download), "Export JSON", t)
                             .on_click(cx.listener(|this, _, w, cx| this.export_json(&ExportJson, w, cx))),

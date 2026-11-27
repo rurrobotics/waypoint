@@ -106,7 +106,6 @@ impl Workspace {
             Field::MapYear => d.map.year as f64,
             Field::MapWidth => d.map.width,
             Field::MapHeight => d.map.height,
-            Field::SampleStep => self.export_step,
             Field::PathName | Field::ItemName | Field::MapName => return None,
         })
     }
@@ -166,7 +165,6 @@ impl Workspace {
             Field::MapYear => d.map.year = v.clamp(0., 9999.) as u32,
             Field::MapWidth => d.map.width = v.max(100.),
             Field::MapHeight => d.map.height = v.max(100.),
-            Field::SampleStep => self.export_step = v.max(1.),
             _ => {}
         }
     }
@@ -215,7 +213,6 @@ impl Workspace {
     pub(super) fn commit_edit(&mut self, cx: &mut Context<Self>) {
         let Some(edit) = self.edit.take() else { return };
         let before = self.doc.clone();
-        let export_step = self.export_step;
         if edit.field.unit() == Unit::Text {
             let s = edit.text.trim().to_string();
             if !s.is_empty() {
@@ -229,8 +226,6 @@ impl Workspace {
         if self.doc != before {
             self.history.push(before);
             self.changed(cx);
-        } else if self.export_step != export_step {
-            cx.notify();
         }
         cx.notify();
     }

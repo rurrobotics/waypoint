@@ -113,8 +113,11 @@ change the initial value in `Workspace::new`, take the screenshot, and revert.
 - **libc pin.** `Cargo.toml` pins `libc < 0.2.190` because gpui's
   `xattr 0.2.3` uses `libc::ENOATTR`, which newer libc removed on Linux. Drop it
   when gpui is updated.
-- **Wayland on GNOME** has no server-side decorations, so the app draws its own
-  (`titlebar.rs`). Test with both `cargo run` (Wayland) and
+- **Window decorations.** `main.rs` requests `WindowDecorations::Client`, so the
+  toolbar is always the title bar on Linux (`titlebar.rs`). Don't drop it:
+  gpui defaults to server-side decorations, and on GNOME Wayland (no
+  xdg-decoration support) it still reports `Decorations::Server`, so no title
+  bar would be drawn at all. Test with both `cargo run` (Wayland) and
   `WAYLAND_DISPLAY= cargo run` (X11).
 - `svg()` icons don't inherit the text colour: pass it to `widgets::icon`.
 - Rust 2024 `impl Trait` returns capture all lifetimes. Render helpers that

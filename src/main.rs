@@ -12,7 +12,8 @@ mod ui;
 use std::borrow::Cow;
 
 use gpui::{
-    App, Application, Bounds, TitlebarOptions, WindowBackgroundAppearance, WindowBounds, WindowOptions, prelude::*,
+    App, Application, Bounds, TitlebarOptions, WindowBackgroundAppearance, WindowBounds, WindowDecorations,
+    WindowOptions, prelude::*,
     px, size,
 };
 
@@ -32,6 +33,11 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions { title: Some("Waypoint".into()), ..Default::default() }),
                 window_min_size: Some(size(px(960.), px(600.))),
+                // Draw our own title bar (the toolbar) on Linux. gpui defaults to
+                // server-side decorations, and on compositors without them
+                // (GNOME/Mutter on Wayland) it still reports them as present, so
+                // nobody would draw a title bar. No effect on macOS/Windows.
+                window_decorations: Some(WindowDecorations::Client),
                 // Transparent so the client-side shadow shows around the frame.
                 window_background: WindowBackgroundAppearance::Transparent,
                 app_id: Some("waypoint".into()),

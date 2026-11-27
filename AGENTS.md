@@ -113,6 +113,10 @@ change the initial value in `Workspace::new`, take the screenshot, and revert.
 
 ## Gotchas
 
+- **Git LFS.** Fonts (`*.ttf`) and `assets/templates/*.svg` are LFS files
+  (`.gitattributes`). Without `git lfs` installed a clone gets pointer files,
+  and the build embeds those instead of the assets (fonts fail to load, the
+  shipped-template test fails). CI checks out with `lfs: true`.
 - **gpui 0.2.2 from crates.io.** APIs differ from Zed's main branch: check the
   source in `~/.cargo/registry/src/*/gpui-0.2.2` rather than guessing.
 - **Shipped templates** are every `.json` in `assets/templates/`, embedded by

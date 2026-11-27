@@ -29,6 +29,9 @@ jobs:
           - { runner: macos-latest, target: x86_64-apple-darwin, test: false }
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Fonts and the table SVG are in Git LFS; build.rs embeds them.
+          lfs: true
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'

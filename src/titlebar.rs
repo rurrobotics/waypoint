@@ -1,17 +1,16 @@
-//! App header plus client-side window decorations for compositors that don't
-//! draw them (e.g. GNOME/Mutter on Wayland). The header is always shown; the
-//! window controls, border, shadow and resize edges only with client-side
-//! decorations.
+//! Window frame: the app's toolbar doubles as the title bar. With client-side
+//! decorations (e.g. GNOME/Mutter on Wayland) it is also the drag area and
+//! gets window controls, a border, a shadow and resize edges.
 
 use std::{cell::Cell, rc::Rc};
 
 use gpui::{
-    AnyElement, Bounds, CursorStyle, Decorations, FontWeight, Hitbox, HitboxBehavior, Hsla, MouseButton, Pixels,
+    AnyElement, Bounds, CursorStyle, Decorations, Hitbox, HitboxBehavior, Hsla, MouseButton, Pixels,
     Point, ResizeEdge, Rgba, Size, Window, canvas, div, point, prelude::*, px, transparent_black,
 };
 
 use crate::assets::Icon;
-use crate::theme::{FONT_SANS, Theme};
+use crate::theme::Theme;
 
 const TITLEBAR_HEIGHT: Pixels = px(44.);
 const SHADOW_SIZE: Pixels = px(10.);
@@ -24,14 +23,13 @@ pub struct TitlebarState {
     should_move: Rc<Cell<bool>>,
 }
 
-/// Wraps `content` in the app frame: header (with `subtitle`) on top, and
-/// border, shadow, and resize edges when the window uses client-side decorations.
+/// Wraps `content` in the app frame: `toolbar` on top, plus border, shadow and
+/// resize edges when the window uses client-side decorations.
 pub fn window_frame(
     window: &mut Window,
     theme: &Theme,
     state: &TitlebarState,
-    subtitle: impl IntoElement,
-    actions: impl IntoElement,
+    toolbar: impl IntoElement,
     content: impl IntoElement,
 ) -> AnyElement {
     let decorations = window.window_decorations();
@@ -42,7 +40,7 @@ pub fn window_frame(
         .overflow_hidden()
         .bg(theme.bg)
         .text_color(theme.fg)
-        .child(titlebar(window, theme, state, subtitle, actions))
+        .child(titlebar(window, theme, state, toolbar))
         .child(div().flex_1().min_h_0().child(content));
 
     let Decorations::Client { tiling } = decorations else {
@@ -107,13 +105,9 @@ pub fn window_frame(
         .into_any_element()
 }
 
-fn titlebar(
-    window: &Window,
-    theme: &Theme,
-    state: &TitlebarState,
-    subtitle: impl IntoElement,
-    actions: impl IntoElement,
-) -> impl IntoElement {
+/// The toolbar row, doubling as the window's drag area. Interactive children
+/// must stop mouse-down propagation so pressing them doesn't drag the window.
+fn titlebar(window: &Window, theme: &Theme, state: &TitlebarState, toolbar: impl IntoElement) -> impl IntoElement {
     let client = matches!(window.window_decorations(), Decorations::Client { .. });
     let controls = window.window_controls();
     let maximized = window.is_maximized();
@@ -125,7 +119,7 @@ fn titlebar(
         .items_center()
         .h(TITLEBAR_HEIGHT)
         .w_full()
-        .pl_4()
+        .pl_2()
         .bg(theme.bg)
         .border_b_1()
         .border_color(theme.border)
@@ -158,38 +152,7 @@ fn titlebar(
                 }
             })
         })
-        .child(
-            div()
-                .flex()
-                .items_baseline()
-                .gap_4()
-                .min_w_0()
-                .child(
-                    div()
-                        .font_family(FONT_SANS)
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_size(px(14.))
-                        .child("Waypoint"),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(theme.muted)
-                        .truncate()
-                        .child(subtitle),
-                ),
-        )
-        .child(div().flex_1())
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap_1()
-                .pr_4()
-                // Buttons, not a drag area.
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(actions),
-        )
+        .child(div().flex().items_center().flex_1().min_w_0().h_full().child(toolbar))
         .when(client, |d| {
             d.child(
                 div()

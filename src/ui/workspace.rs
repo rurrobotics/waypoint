@@ -494,6 +494,7 @@ impl Workspace {
                                 .border_2()
                                 .border_color(if active { t.fg } else { color })
                                 .cursor_pointer()
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.region_color = c;
                                     cx.notify();
@@ -507,22 +508,22 @@ impl Workspace {
 
         let snap_label = if self.snap == 0. { "Off".to_string() } else { format!("{} mm", canvas::format_mm(self.snap)) };
 
+        let sep = || div().w(px(1.)).h(px(18.)).mx_1().flex_none().bg(t.border);
         div()
             .flex()
-            .flex_none()
-            .flex_wrap()
+            .flex_1()
+            .min_w_0()
             .items_center()
             .gap_1()
-            .px_4()
-            .py_2()
-            .border_b_1()
-            .border_color(t.border)
+            .overflow_hidden()
+            .child(self.render_file_actions(t, cx))
+            .child(sep())
             .child(tool_chip("tool-select", Icon::Pointer, "Select", Tool::Select, cx))
             .child(tool_chip("tool-waypoint", Icon::Route, "Waypoint", Tool::Waypoint, cx))
             .child(tool_chip("tool-obstacle", Icon::Square, "Obstacle", Tool::Obstacle, cx))
             .child(tool_chip("tool-region", Icon::SquareDashed, "Region", Tool::Region, cx))
             .child(tool_chip("tool-measure", Icon::Ruler, "Measure", Tool::Measure, cx))
-            .child(div().w(px(2.)).h(px(22.)).mx_2().bg(t.border))
+            .child(sep())
             .child(subtools)
             .child(div().flex_1())
             .child(chip_icon("snap", Some(Icon::Magnet), &snap_label, self.snap > 0., t).on_click(cx.listener(
@@ -541,20 +542,18 @@ impl Workspace {
             .child(icon_button("fit", Icon::Fit, "Fit table (F)", false, t).on_click(cx.listener(|this, _, w, cx| {
                 this.fit_view(&FitView, w, cx)
             })))
+            .child(
+                primary_button("file-export", Some(Icon::Download), "Export", t)
+                    .on_click(cx.listener(|this, _, w, cx| this.export_json(&ExportJson, w, cx))),
+            )
     }
 
     fn render_file_actions(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         div()
             .flex()
+            .flex_none()
             .items_center()
             .gap_1()
-            .child(icon_button("undo", Icon::Undo, "Undo (Ctrl+Z)", false, t).on_click(cx.listener(|this, _, w, cx| {
-                this.undo(&Undo, w, cx)
-            })))
-            .child(icon_button("redo", Icon::Redo, "Redo (Ctrl+Shift+Z)", false, t).on_click(cx.listener(|this, _, w, cx| {
-                this.redo(&Redo, w, cx)
-            })))
-            .child(div().w(px(1.)).h(px(18.)).mx_1().bg(t.border))
             .child(icon_button("file-new", Icon::FilePlus, "New project (Ctrl+N)", false, t).on_click(cx.listener(|this, _, w, cx| {
                 this.new_project(&NewProject, w, cx)
             })))
@@ -564,10 +563,13 @@ impl Workspace {
             .child(icon_button("file-save", Icon::Save, "Save project (Ctrl+S)", false, t).on_click(cx.listener(|this, _, w, cx| {
                 this.save_project(&SaveProject, w, cx)
             })))
-            .child(
-                primary_button("file-export", Some(Icon::Download), "Export", t)
-                    .on_click(cx.listener(|this, _, w, cx| this.export_json(&ExportJson, w, cx))),
-            )
+            .child(div().w(px(1.)).h(px(18.)).mx_1().bg(t.border))
+            .child(icon_button("undo", Icon::Undo, "Undo (Ctrl+Z)", false, t).on_click(cx.listener(|this, _, w, cx| {
+                this.undo(&Undo, w, cx)
+            })))
+            .child(icon_button("redo", Icon::Redo, "Redo (Ctrl+Shift+Z)", false, t).on_click(cx.listener(|this, _, w, cx| {
+                this.redo(&Redo, w, cx)
+            })))
     }
 
     fn render_sidebar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -721,6 +723,12 @@ impl Workspace {
             (Tool::Measure, _) => "Drag to measure",
         };
         let zoom = format!("{:.0}%", self.view.zoom * 100.);
+        let name = self
+            .project_path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map_or_else(|| "Untitled".to_string(), |n| n.to_string_lossy().into_owned());
+        let project = format!("{name}{}", if self.dirty { " •" } else { "" });
         let active = self.active_path;
         let length = self.active().map(|p| format!("{:.3} m", p.length() / 1000.));
         let gaps = self.active().map(|p| p.discontinuities().len()).unwrap_or(0);
@@ -740,6 +748,7 @@ impl Workspace {
             .border_t_1()
             .border_color(t.border)
             .text_size(px(12.))
+            .child(div().font_weight(FontWeight::MEDIUM).child(project))
             .child(div().w(px(150.)).font_family(FONT_MONO).text_size(px(11.)).child(hover.unwrap_or_default()))
             .child(div().text_color(t.muted).truncate().child(hint))
             .child(div().flex_1())
@@ -799,20 +808,6 @@ impl Render for Workspace {
             preview,
         };
 
-        let name = self
-            .project_path
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "Untitled".into());
-        let subtitle = format!(
-            "{name}{} · {} {}",
-            if self.dirty { " *" } else { "" },
-            self.doc.map.name,
-            self.doc.map.year
-        );
-
-        let actions = self.render_file_actions(&t, cx);
         let toolbar = self.render_toolbar(&t, cx);
         let sidebar = self.render_sidebar(&t, cx);
         let canvas = self.render_canvas(&t, frame, cx);
@@ -823,7 +818,6 @@ impl Render for Workspace {
             .flex()
             .flex_col()
             .font_family(FONT_SANS)
-            .child(toolbar)
             .child(div().flex_1().min_h_0().flex().flex_row().child(sidebar).child(canvas).child(inspector))
             .child(status);
 
@@ -858,6 +852,6 @@ impl Render for Workspace {
                 this.modifiers = e.modifiers;
                 cx.notify();
             }))
-            .child(window_frame(window, &t, &self.titlebar, subtitle, actions, content))
+            .child(window_frame(window, &t, &self.titlebar, toolbar, content))
     }
 }

@@ -1,7 +1,7 @@
 //! Small building blocks: section labels, toggles, buttons and badges.
 
 use gpui::{
-    AnyView, App, Context, Div, ElementId, FontWeight, Hsla, Rgba, SharedString, Stateful, Svg, Window, div, prelude::*, px,
+    AnyView, App, Context, Div, ElementId, FontWeight, Hsla, MouseButton, Rgba, SharedString, Stateful, Svg, Window, div, prelude::*, px,
     svg,
 };
 
@@ -9,6 +9,12 @@ use crate::assets::Icon;
 use crate::theme::{FONT_MONO, RADIUS, Theme};
 
 /// An icon; svgs don't inherit the text colour, so it's passed explicitly.
+/// Buttons sit in the toolbar, which is also the window's drag area: keep
+/// mouse-downs on them from starting a window move.
+fn pressable(d: Stateful<Div>) -> Stateful<Div> {
+    d.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+}
+
 pub fn icon(icon: Icon, size: f32, color: impl Into<Hsla>) -> Svg {
     svg().path(icon.path()).size(px(size)).flex_none().text_color(color.into())
 }
@@ -31,8 +37,7 @@ pub fn tooltip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) 
 /// Square icon-only button with a tooltip; `active` fills it like a pressed toggle.
 pub fn icon_button(id: impl Into<ElementId>, i: Icon, tip: &str, active: bool, t: &Theme) -> Stateful<Div> {
     let t = *t;
-    div()
-        .id(id)
+    pressable(div().id(id))
         .flex()
         .items_center()
         .justify_center()
@@ -69,8 +74,7 @@ pub fn chip(id: impl Into<ElementId>, text: &str, active: bool, t: &Theme) -> St
 
 pub fn chip_icon(id: impl Into<ElementId>, i: Option<Icon>, text: &str, active: bool, t: &Theme) -> Stateful<Div> {
     let t = *t;
-    div()
-        .id(id)
+    pressable(div().id(id))
         .flex()
         .items_center()
         .gap_1()
@@ -93,8 +97,7 @@ pub fn button(id: impl Into<ElementId>, text: &str, danger: bool, t: &Theme) -> 
 
 pub fn button_icon(id: impl Into<ElementId>, i: Option<Icon>, text: &str, danger: bool, t: &Theme) -> Stateful<Div> {
     let t = *t;
-    div()
-        .id(id)
+    pressable(div().id(id))
         .flex()
         .items_center()
         .justify_center()
@@ -116,8 +119,7 @@ pub fn button_icon(id: impl Into<ElementId>, i: Option<Icon>, text: &str, danger
 
 /// Filled primary button.
 pub fn primary_button(id: impl Into<ElementId>, i: Option<Icon>, text: &str, t: &Theme) -> Stateful<Div> {
-    div()
-        .id(id)
+    pressable(div().id(id))
         .flex()
         .items_center()
         .justify_center()

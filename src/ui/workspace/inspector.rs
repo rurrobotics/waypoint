@@ -1,13 +1,13 @@
-use gpui::{Context, Div, FontWeight, KeyDownEvent, MouseButton, MouseDownEvent, Window, div, prelude::*, px};
+use gpui::{Context, Div, KeyDownEvent, MouseButton, MouseDownEvent, Window, div, prelude::*, px};
 
 use super::Workspace;
 use crate::geom::path::{body_heading, travel_heading};
 use crate::geom::{Path, Pose, Segment, SegmentKind, Shape, Vec2, vec2};
 use crate::model::{Origin, RegionColor};
-use crate::theme::{FONT_MONO, Theme};
+use crate::theme::{FONT_MONO, RADIUS, Theme, alpha};
 use crate::ui::canvas::{self, Selection};
 use crate::ui::fields::{Edit, Field, Outcome, Unit, parse_number};
-use crate::ui::widgets::{button, chip, mono_label, section, section_title};
+use crate::ui::widgets::{button, chip, label, section, section_title};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -314,10 +314,8 @@ impl Workspace {
             .id(("field-label", f as usize))
             .w(px(96.))
             .flex_none()
-            .font_family(FONT_MONO)
-            .font_weight(FontWeight::BOLD)
-            .text_size(px(11.))
-            .text_color(t.ink_muted)
+            .text_size(px(12.))
+            .text_color(t.muted)
             .when(unit != Unit::Text, |d| {
                 d.cursor(gpui::CursorStyle::ResizeLeftRight).on_mouse_down(
                     MouseButton::Left,
@@ -337,7 +335,9 @@ impl Workspace {
             .min_w_0()
             .h(px(28.))
             .px_2()
-            .border_2()
+            .rounded(RADIUS)
+            .bg(t.elevated)
+            .border_1()
             .border_color(t.border)
             .font_family(FONT_MONO)
             .text_size(px(12.))
@@ -345,27 +345,27 @@ impl Workspace {
 
         if let Some(e) = editing {
             boxed = boxed
-                .border_color(t.primary)
+                .border_color(t.accent)
                 .track_focus(&self.field_focus)
                 .key_context("Field")
                 .on_key_down(cx.listener(Self::edit_key));
             boxed = if e.select_all {
-                boxed.child(div().bg(t.primary).text_color(t.primary_fg).child(e.text.clone()))
+                boxed.child(div().bg(alpha(t.accent, 0.3)).child(e.text.clone()))
             } else {
                 boxed
                     .child(e.text[..e.cursor].to_string())
-                    .child(div().w(px(2.)).h(px(16.)).bg(t.foreground))
+                    .child(div().w(px(2.)).h(px(16.)).bg(t.fg))
                     .child(e.text[e.cursor..].to_string())
             };
         } else {
             boxed = boxed
-                .hover(move |s| s.border_color(t.secondary))
+                .hover(move |s| s.border_color(t.border_strong))
                 .on_click(cx.listener(move |this, _, window, cx| this.start_edit(f, window, cx)))
                 .child(div().truncate().child(value));
         }
         let boxed = boxed
             .child(div().flex_1())
-            .child(div().text_color(t.ink_muted).text_size(px(10.)).child(unit.suffix()));
+            .child(div().text_color(t.muted).text_size(px(10.)).child(unit.suffix()));
 
         Some(div().flex().items_center().gap_2().child(label).child(boxed))
     }
@@ -374,12 +374,12 @@ impl Workspace {
         div().flex().flex_col().gap_1().children(fields.iter().filter_map(|&f| self.field_row(f, t, cx)))
     }
 
-    fn info(t: &Theme, label: &str, value: String) -> Div {
+    fn info(t: &Theme, name: &str, value: String) -> Div {
         div()
             .flex()
             .items_center()
             .gap_2()
-            .child(mono_label(t, label.to_string()).w(px(96.)).flex_none())
+            .child(label(t, name.to_string()).w(px(96.)).flex_none())
             .child(div().font_family(FONT_MONO).text_size(px(12.)).child(value))
     }
 
@@ -387,9 +387,9 @@ impl Workspace {
         let (pi, idx) = self.selected_waypoint()?;
         let path = &self.doc.paths[pi];
         let poses = path.poses();
-        let mut s = section(t, t.primary).child(section_title(
+        let mut s = section(t).child(section_title(
             &if idx == 0 { "Start".to_string() } else { format!("Waypoint {idx}") },
-            t.primary,
+            t,
         ));
 
         if idx == 0 {
@@ -406,13 +406,13 @@ impl Workspace {
         let mut kinds = div().flex().flex_wrap().gap_1();
         for (label, k) in [("Straight", Kind::Straight), ("Turn", Kind::Turn), ("Hermite", Kind::Hermite)] {
             kinds = kinds.child(
-                chip(("kind", k as usize), label, kind == k, t.foreground, t.background, t)
+                chip(("kind", k as usize), label, kind == k, t)
                     .on_click(cx.listener(move |this, _, _, cx| this.set_kind(pi, si, k, cx))),
             );
         }
         let reverse = seg.reverse;
         kinds = kinds.child(
-            chip("seg-reverse", "Reverse", reverse, t.secondary, t.secondary_fg, t).on_click(cx.listener(
+            chip("seg-reverse", "Reverse", reverse, t).on_click(cx.listener(
                 move |this, _, _, cx| {
                     this.edit_doc(cx, |d| {
                         let seg = &mut d.paths[pi].segments[si];
@@ -442,7 +442,7 @@ impl Workspace {
                 div()
                     .flex()
                     .gap_1()
-                    .child(chip("in-place", "In place", in_place, t.tertiary, t.tertiary_fg, t).on_click(
+                    .child(chip("in-place", "In place", in_place, t).on_click(
                         cx.listener(move |this, _, _, cx| {
                             this.edit_doc(cx, |d| {
                                 if let SegmentKind::Turn { radius, auto, .. } = &mut d.paths[pi].segments[si].kind {
@@ -453,7 +453,7 @@ impl Workspace {
                         }),
                     ))
                     .when(auto && radius == 0., |d| {
-                        d.child(chip("auto", "Auto", true, t.secondary, t.secondary_fg, t).on_click(cx.listener(
+                        d.child(chip("auto", "Auto", true, t).on_click(cx.listener(
                             move |this, _, _, cx| {
                                 this.edit_doc(cx, |d| {
                                     if let SegmentKind::Turn { auto, .. } = &mut d.paths[pi].segments[si].kind {
@@ -478,22 +478,22 @@ impl Workspace {
         s = s
             .child(Self::info(
                 t,
-                "END",
+                "End",
                 format!("{}, {}  {:.1}°", canvas::format_mm(end.x), canvas::format_mm(end.y), end.theta.to_degrees()),
             ))
-            .child(Self::info(t, "LENGTH", format!("{} MM", canvas::format_mm(seg.length(start)))))
+            .child(Self::info(t, "Length", format!("{} mm", canvas::format_mm(seg.length(start)))))
             .when_some(clearance, |d, c| {
                 let bad = c < self.doc.robot.margin || c <= 0.;
                 d.child(
-                    Self::info(t, "CLEARANCE", format!("{} MM", canvas::format_mm(c)))
-                        .when(bad, |d| d.text_color(t.primary)),
+                    Self::info(t, "Clearance", format!("{} mm", canvas::format_mm(c)))
+                        .when(bad, |d| d.text_color(t.danger)),
                 )
             })
             .when(seg.is_discontinuous(start), |d| {
-                d.child(mono_label(t, "HEADING JUMP AT START — ADD A TURN").text_color(t.primary))
+                d.child(label(t, "Heading jump at the start — add a turn").text_color(t.warning))
             })
             .child(
-                button("delete-waypoint", "Delete waypoint", t.primary, t.primary_fg, t)
+                button("delete-waypoint", "Delete waypoint", true, t)
                     .on_click(cx.listener(|this, _, w, cx| this.delete_selection(&super::DeleteSelection, w, cx))),
             );
         Some(s)
@@ -503,13 +503,13 @@ impl Workspace {
         let pi = self.active_path?;
         let path = self.doc.paths.get(pi)?;
         Some(
-            section(t, t.foreground)
-                .child(section_title("Path", t.primary))
+            section(t)
+                .child(section_title("Path", t))
                 .child(self.fields(&[Field::PathName], t, cx))
-                .child(Self::info(t, "LENGTH", format!("{:.3} M", path.length() / 1000.)))
-                .child(Self::info(t, "SEGMENTS", path.segments.len().to_string()))
+                .child(Self::info(t, "Length", format!("{:.3} m", path.length() / 1000.)))
+                .child(Self::info(t, "Segments", path.segments.len().to_string()))
                 .child(
-                    button("delete-path", "Delete path", t.primary, t.primary_fg, t).on_click(cx.listener(
+                    button("delete-path", "Delete path", true, t).on_click(cx.listener(
                         move |this, _, _, cx| {
                             this.edit_doc(cx, |d| {
                                 d.paths.remove(pi);
@@ -529,8 +529,7 @@ impl Workspace {
             Selection::Region(i) => Some((i, self.doc.map.regions[i].color)),
             _ => None,
         };
-        let strip = region.map_or(t.foreground, |(_, c)| canvas::region_color(t, c));
-        let mut s = section(t, strip).child(section_title(if region.is_some() { "Region" } else { "Obstacle" }, strip));
+        let mut s = section(t).child(section_title(if region.is_some() { "Region" } else { "Obstacle" }, t));
         let fields: &[Field] = match shape {
             Shape::Rect { .. } => {
                 &[Field::ItemName, Field::ShapeCx, Field::ShapeCy, Field::ShapeW, Field::ShapeH, Field::ShapeRotation]
@@ -548,9 +547,9 @@ impl Workspace {
                         .id(("inspector-color", k))
                         .size(px(24.))
                         .bg(color)
+                        .rounded_full()
                         .border_2()
-                        .border_color(if c == current { t.foreground } else { color })
-                        .when(c == current, |d| d.border_4())
+                        .border_color(if c == current { t.fg } else { color })
                         .cursor_pointer()
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.edit_doc(cx, |d| d.map.regions[ri].color = c);
@@ -560,10 +559,10 @@ impl Workspace {
             s = s.child(colors);
         }
         if let Shape::Polygon { points } = shape {
-            s = s.child(Self::info(t, "VERTICES", points.len().to_string()));
+            s = s.child(Self::info(t, "Vertices", points.len().to_string()));
         }
         Some(s.child(
-            button("delete-shape", "Delete", t.primary, t.primary_fg, t)
+            button("delete-shape", "Delete", true, t)
                 .on_click(cx.listener(|this, _, w, cx| this.delete_selection(&super::DeleteSelection, w, cx))),
         ))
     }
@@ -576,55 +575,55 @@ impl Workspace {
             .background
             .as_ref()
             .and_then(|p| p.file_name())
-            .map_or("NONE".to_string(), |n| n.to_string_lossy().to_uppercase());
+            .map_or("None".to_string(), |n| n.to_string_lossy().into_owned());
 
-        let robot = section(t, t.tertiary).child(section_title("Robot", t.tertiary_ink)).child(self.fields(
+        let robot = section(t).child(section_title("Robot", t)).child(self.fields(
             &[Field::RobotLength, Field::RobotWidth, Field::RobotOffsetX, Field::RobotOffsetY, Field::RobotMargin],
             t,
             cx,
         ));
 
-        let map = section(t, t.secondary)
-            .child(section_title("Map", t.secondary))
+        let map = section(t)
+            .child(section_title("Map", t))
             .child(self.fields(&[Field::MapName, Field::MapYear, Field::MapWidth, Field::MapHeight], t, cx))
             .child(
                 div()
                     .flex()
                     .gap_1()
                     .child(
-                        chip("origin-bl", "Origin bottom-left", origin == Origin::BottomLeft, t.foreground, t.background, t)
+                        chip("origin-bl", "Origin bottom-left", origin == Origin::BottomLeft, t)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.edit_doc(cx, |d| d.map.origin = Origin::BottomLeft)
                             })),
                     )
-                    .child(chip("origin-tl", "Top-left", origin == Origin::TopLeft, t.foreground, t.background, t).on_click(
+                    .child(chip("origin-tl", "Top-left", origin == Origin::TopLeft, t).on_click(
                         cx.listener(|this, _, _, cx| this.edit_doc(cx, |d| d.map.origin = Origin::TopLeft)),
                     )),
             )
-            .child(Self::info(t, "BACKGROUND", background))
+            .child(Self::info(t, "Background", background))
             .child(
                 div()
                     .flex()
                     .flex_wrap()
                     .gap_1()
-                    .child(button("bg-set", "Set image", t.foreground, t.background, t).on_click(cx.listener(
+                    .child(button("bg-set", "Set image", false, t).on_click(cx.listener(
                         |this, _, w, cx| this.pick_background(w, cx),
                     )))
-                    .child(button("bg-clear", "Clear", t.foreground, t.background, t).on_click(cx.listener(
+                    .child(button("bg-clear", "Clear", false, t).on_click(cx.listener(
                         |this, _, _, cx| this.edit_doc(cx, |d| d.map.background = None),
                     )))
-                    .child(button("map-open", "Open map", t.foreground, t.background, t).on_click(cx.listener(
+                    .child(button("map-open", "Open map", false, t).on_click(cx.listener(
                         |this, _, w, cx| this.open_map(&super::OpenMap, w, cx),
                     )))
-                    .child(button("map-save", "Save map", t.foreground, t.background, t).on_click(cx.listener(
+                    .child(button("map-save", "Save map", false, t).on_click(cx.listener(
                         |this, _, w, cx| this.save_map(&super::SaveMap, w, cx),
                     ))),
             );
 
-        let export = section(t, t.accent)
-            .child(section_title("Export", t.accent))
+        let export = section(t)
+            .child(section_title("Export", t))
             .child(self.fields(&[Field::SampleStep], t, cx))
-            .child(mono_label(t, "JSON INCLUDES SEGMENTS + SAMPLES EVERY STEP"));
+            .child(label(t, "JSON includes segments and samples every step"));
 
         div()
             .id("inspector")
@@ -636,7 +635,7 @@ impl Workspace {
             .gap_4()
             .px_4()
             .pb_4()
-            .border_l_2()
+            .border_l_1()
             .border_color(t.border)
             .overflow_y_scroll()
             .children(self.render_waypoint(t, cx))

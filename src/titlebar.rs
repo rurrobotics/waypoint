@@ -10,7 +10,7 @@ use gpui::{
     Point, ResizeEdge, Rgba, Size, Window, canvas, div, point, prelude::*, px, transparent_black,
 };
 
-use crate::theme::{FONT_DISPLAY, FONT_MONO, Theme};
+use crate::theme::{FONT_SANS, Theme};
 
 const TITLEBAR_HEIGHT: Pixels = px(44.);
 const SHADOW_SIZE: Pixels = px(10.);
@@ -39,8 +39,8 @@ pub fn window_frame(
         .flex()
         .flex_col()
         .overflow_hidden()
-        .bg(theme.background)
-        .text_color(theme.foreground)
+        .bg(theme.bg)
+        .text_color(theme.fg)
         .child(titlebar(window, theme, state, subtitle, actions))
         .child(div().flex_1().min_h_0().child(content));
 
@@ -88,10 +88,10 @@ pub fn window_frame(
         .child(
             body.cursor(CursorStyle::Arrow)
                 .border_color(theme.border)
-                .when(!tiling.top, |d| d.border_t_2())
-                .when(!tiling.bottom, |d| d.border_b_2())
-                .when(!tiling.left, |d| d.border_l_2())
-                .when(!tiling.right, |d| d.border_r_2())
+                .when(!tiling.top, |d| d.border_t_1())
+                .when(!tiling.bottom, |d| d.border_b_1())
+                .when(!tiling.left, |d| d.border_l_1())
+                .when(!tiling.right, |d| d.border_r_1())
                 .when(!tiling.is_tiled(), |d| {
                     d.shadow(vec![gpui::BoxShadow {
                         color: Hsla { h: 0., s: 0., l: 0., a: 0.35 },
@@ -125,8 +125,8 @@ fn titlebar(
         .h(TITLEBAR_HEIGHT)
         .w_full()
         .pl_4()
-        .bg(theme.background)
-        .border_b_4()
+        .bg(theme.bg)
+        .border_b_1()
         .border_color(theme.border)
         .when(client, |d| {
             d.on_mouse_down(MouseButton::Left, {
@@ -165,18 +165,15 @@ fn titlebar(
                 .min_w_0()
                 .child(
                     div()
-                        .flex()
-                        .font_family(FONT_DISPLAY)
-                        .font_weight(FontWeight::BOLD)
-                        .text_size(px(20.))
-                        .child("WAYPOINT")
-                        .child(div().text_color(theme.primary).child(".")),
+                        .font_family(FONT_SANS)
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_size(px(14.))
+                        .child("Waypoint"),
                 )
                 .child(
                     div()
-                        .font_family(FONT_MONO)
                         .text_xs()
-                        .text_color(theme.ink_muted)
+                        .text_color(theme.muted)
                         .truncate()
                         .child(subtitle),
                 ),
@@ -197,10 +194,9 @@ fn titlebar(
                 div()
                     .flex()
                     .h_full()
-                    .font_family(FONT_MONO)
                     .text_sm()
                     .when(controls.minimize, |d| {
-                        d.child(control_button("minimize", "–", theme.foreground, theme.background, |w| {
+                        d.child(control_button("minimize", "–", theme.fg, theme.bg, |w| {
                             w.minimize_window()
                         }))
                     })
@@ -208,12 +204,12 @@ fn titlebar(
                         d.child(control_button(
                             "maximize",
                             if maximized { "❐" } else { "□" },
-                            theme.foreground,
-                            theme.background,
+                            theme.fg,
+                            theme.bg,
                             |w| w.zoom_window(),
                         ))
                     })
-                    .child(control_button("close", "✕", theme.primary, theme.primary_fg, |w| w.remove_window())),
+                    .child(control_button("close", "✕", theme.danger, theme.danger_fg, |w| w.remove_window())),
             )
         })
 }

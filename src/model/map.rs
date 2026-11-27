@@ -54,16 +54,17 @@ pub struct Region {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RegionColor {
-    Primary,
     #[default]
-    Secondary,
-    Accent,
-    Tertiary,
-    Muted,
+    Blue,
+    Green,
+    Amber,
+    Red,
+    Violet,
+    Gray,
 }
 
 impl RegionColor {
-    pub const ALL: [RegionColor; 5] = [Self::Primary, Self::Secondary, Self::Accent, Self::Tertiary, Self::Muted];
+    pub const ALL: [RegionColor; 6] = [Self::Blue, Self::Green, Self::Amber, Self::Red, Self::Violet, Self::Gray];
 }
 
 impl Default for Map {
@@ -125,7 +126,7 @@ mod tests {
         });
         map.regions.push(Region {
             name: "Start blue".into(),
-            color: RegionColor::Tertiary,
+            color: RegionColor::Blue,
             shape: Shape::Circle { center: vec2(200., 200.), radius: 150. },
         });
         let text = toml::to_string_pretty(&map).unwrap();

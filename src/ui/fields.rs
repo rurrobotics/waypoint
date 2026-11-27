@@ -47,22 +47,22 @@ impl Field {
         match self {
             PoseX | ShapeCx => "X",
             PoseY | ShapeCy => "Y",
-            PoseTheta => "HEADING",
-            TurnAngle => "ANGLE",
-            TurnRadius => "RADIUS",
-            HermiteT0 => "TANGENT IN",
-            HermiteT1 => "TANGENT OUT",
-            PathName | ItemName | MapName => "NAME",
-            ShapeW | MapWidth | RobotWidth => "WIDTH",
-            ShapeH | MapHeight => "HEIGHT",
-            ShapeRotation => "ROTATION",
-            ShapeRadius => "RADIUS",
-            RobotLength => "LENGTH",
-            RobotOffsetX => "OFFSET X",
-            RobotOffsetY => "OFFSET Y",
-            RobotMargin => "MARGIN",
-            MapYear => "YEAR",
-            SampleStep => "STEP",
+            PoseTheta => "Heading",
+            TurnAngle => "Angle",
+            TurnRadius => "Radius",
+            HermiteT0 => "Tangent in",
+            HermiteT1 => "Tangent out",
+            PathName | ItemName | MapName => "Name",
+            ShapeW | MapWidth | RobotWidth => "Width",
+            ShapeH | MapHeight => "Height",
+            ShapeRotation => "Rotation",
+            ShapeRadius => "Radius",
+            RobotLength => "Length",
+            RobotOffsetX => "Offset x",
+            RobotOffsetY => "Offset y",
+            RobotMargin => "Margin",
+            MapYear => "Year",
+            SampleStep => "Step",
         }
     }
 
@@ -89,7 +89,7 @@ impl Field {
 impl Unit {
     pub fn suffix(self) -> &'static str {
         match self {
-            Unit::Mm => "MM",
+            Unit::Mm => "mm",
             Unit::Deg => "°",
             Unit::Plain | Unit::Text => "",
         }

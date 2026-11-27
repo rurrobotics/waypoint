@@ -1,43 +1,40 @@
-//! RUR Robotics brand tokens (mirrors `src/styles/global.css` of the website).
+//! Neutral light/dark palette (zinc greys, one blue accent) and fonts.
 
-use gpui::{App, Global, Hsla, Rgba, Window, WindowAppearance, rgb};
+use gpui::{App, Global, Hsla, Pixels, Rgba, Window, WindowAppearance, px, rgb};
 
-pub const FONT_DISPLAY: &str = "Oswald";
-pub const FONT_SANS: &str = "Golos Text";
+pub const FONT_SANS: &str = "Inter";
 pub const FONT_MONO: &str = "JetBrains Mono";
+
+/// Corner radius for controls and panels.
+pub const RADIUS: Pixels = px(6.);
 
 /// Static TTFs embedded in the binary (OFL, see `assets/fonts`).
 pub const FONTS: &[&[u8]] = &[
-    include_bytes!("../assets/fonts/Oswald-Medium.ttf"),
-    include_bytes!("../assets/fonts/Oswald-Bold.ttf"),
-    include_bytes!("../assets/fonts/GolosText-Regular.ttf"),
-    include_bytes!("../assets/fonts/GolosText-Medium.ttf"),
-    include_bytes!("../assets/fonts/GolosText-SemiBold.ttf"),
+    include_bytes!("../assets/fonts/Inter-Regular.ttf"),
+    include_bytes!("../assets/fonts/Inter-Medium.ttf"),
+    include_bytes!("../assets/fonts/Inter-SemiBold.ttf"),
     include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf"),
     include_bytes!("../assets/fonts/JetBrainsMono-Bold.ttf"),
 ];
 
-/// The full brand palette; not every token is used yet.
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub struct Theme {
     pub dark: bool,
-    pub background: Rgba,
-    pub foreground: Rgba,
-    pub primary: Rgba,
-    pub primary_fg: Rgba,
-    pub secondary: Rgba,
-    pub secondary_fg: Rgba,
+    /// Panels and toolbar.
+    pub bg: Rgba,
+    /// Inputs, hovered rows, pressed toggles.
+    pub elevated: Rgba,
+    pub border: Rgba,
+    pub border_strong: Rgba,
+    pub fg: Rgba,
+    /// Secondary text, inactive paths, ghosts.
+    pub muted: Rgba,
     pub accent: Rgba,
     pub accent_fg: Rgba,
-    pub tertiary: Rgba,
-    pub tertiary_fg: Rgba,
-    /// Tertiary as a text colour (needs more contrast than the fill).
-    pub tertiary_ink: Rgba,
-    pub muted: Rgba,
-    pub muted_fg: Rgba,
-    pub ink_muted: Rgba,
-    pub border: Rgba,
+    pub danger: Rgba,
+    pub danger_fg: Rgba,
+    pub warning: Rgba,
+    pub success: Rgba,
     /// Canvas surround behind the table.
     pub canvas: Rgba,
     /// Empty table surface when there's no background image.
@@ -48,41 +45,40 @@ impl Theme {
     pub fn light() -> Self {
         Self {
             dark: false,
-            background: rgb(0xffffff),
-            foreground: rgb(0x111111),
-            primary: rgb(0xee4036),
-            primary_fg: rgb(0xffffff),
-            secondary: rgb(0xffa112),
-            secondary_fg: rgb(0x111111),
-            accent: rgb(0xff7431),
-            accent_fg: rgb(0x111111),
-            tertiary: rgb(0x001d7d),
-            tertiary_fg: rgb(0xffffff),
-            tertiary_ink: rgb(0x001d7d),
-            muted: rgb(0x737373),
-            muted_fg: rgb(0xffffff),
-            ink_muted: rgb(0x55503f),
-            border: rgb(0x111111),
-            canvas: rgb(0xece8e0),
-            table: rgb(0xfaf8f4),
+            bg: rgb(0xffffff),
+            elevated: rgb(0xf4f4f5),
+            border: rgb(0xe4e4e7),
+            border_strong: rgb(0xa1a1aa),
+            fg: rgb(0x18181b),
+            muted: rgb(0x71717a),
+            accent: rgb(0x2563eb),
+            accent_fg: rgb(0xffffff),
+            danger: rgb(0xdc2626),
+            danger_fg: rgb(0xffffff),
+            warning: rgb(0xd97706),
+            success: rgb(0x16a34a),
+            canvas: rgb(0xf4f4f5),
+            table: rgb(0xfafafa),
         }
     }
 
-    /// Warm near-black and paper, as on the website.
     pub fn dark() -> Self {
         Self {
             dark: true,
-            background: rgb(0x16130f),
-            foreground: rgb(0xece5d8),
-            muted: rgb(0x9c9384),
-            muted_fg: rgb(0x16130f),
-            ink_muted: rgb(0xaaa08b),
-            border: rgb(0xece5d8),
-            tertiary: rgb(0x1a3399),
-            tertiary_ink: rgb(0x93a1d9),
-            canvas: rgb(0x0c0a08),
-            table: rgb(0x221e18),
-            ..Self::light()
+            bg: rgb(0x18181b),
+            elevated: rgb(0x27272a),
+            border: rgb(0x2e2e33),
+            border_strong: rgb(0x71717a),
+            fg: rgb(0xfafafa),
+            muted: rgb(0xa1a1aa),
+            accent: rgb(0x3b82f6),
+            accent_fg: rgb(0xffffff),
+            danger: rgb(0xef4444),
+            danger_fg: rgb(0xffffff),
+            warning: rgb(0xf59e0b),
+            success: rgb(0x22c55e),
+            canvas: rgb(0x09090b),
+            table: rgb(0x1c1c20),
         }
     }
 

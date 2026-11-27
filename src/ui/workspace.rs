@@ -18,11 +18,11 @@ use gpui::{
 use crate::geom::collision::{self, Report};
 use crate::geom::{Path, Sample, Vec2, vec2};
 use crate::model::{Doc, History, RegionColor};
-use crate::theme::{FONT_MONO, FONT_SANS, Theme};
+use crate::theme::{FONT_MONO, FONT_SANS, RADIUS, Theme, alpha};
 use crate::titlebar::{TitlebarState, window_frame};
 use crate::ui::canvas::{self, Frame, Handle, Selection, View, Xform};
 use crate::ui::fields::Edit;
-use crate::ui::widgets::{badge, button, chip, mono_label, section_title, solid_button};
+use crate::ui::widgets::{badge, button, chip, label, section_title, primary_button};
 
 /// Sampling step for drawing and collision checking (mm).
 const ANALYSIS_STEP: f64 = 5.;
@@ -207,7 +207,7 @@ impl Workspace {
             auto_turn: true,
             snap: 10.,
             show_sweep: true,
-            region_color: RegionColor::Secondary,
+            region_color: RegionColor::Blue,
             export_step: 10.,
             active_path: None,
             selection: Selection::None,
@@ -420,10 +420,10 @@ impl Workspace {
 
     fn render_toolbar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let tool_chip = |id: &'static str, label: &str, tool: Tool, cx: &mut Context<Self>| {
-            chip(id, label, self.tool == tool, t.foreground, t.background, t)
+            chip(id, label, self.tool == tool, t)
                 .on_click(cx.listener(move |this, _, _, cx| this.set_tool(tool, cx)))
         };
-        let sub = |id: &'static str, label: &str, active: bool| chip(id, label, active, t.tertiary, t.tertiary_fg, t);
+        let sub = |id: &'static str, label: &str, active: bool| chip(id, label, active, t);
 
         let mut subtools = div().flex().items_center().gap_1();
         match self.tool {
@@ -444,19 +444,19 @@ impl Workspace {
                 }
                 subtools = subtools
                     .child(div().w(px(8.)))
-                    .child(chip("reverse", "Reverse", self.reverse, t.secondary, t.secondary_fg, t).on_click(
+                    .child(chip("reverse", "Reverse", self.reverse, t).on_click(
                         cx.listener(|this, _, _, cx| {
                             this.reverse = !this.reverse;
                             cx.notify();
                         }),
                     ))
-                    .child(chip("auto-turn", "Auto turn", self.auto_turn, t.secondary, t.secondary_fg, t).on_click(
+                    .child(chip("auto-turn", "Auto turn", self.auto_turn, t).on_click(
                         cx.listener(|this, _, _, cx| {
                             this.auto_turn = !this.auto_turn;
                             cx.notify();
                         }),
                     ))
-                    .child(button("new-path", "+ New path", t.primary, t.primary_fg, t).on_click(cx.listener(
+                    .child(button("new-path", "+ New path", true, t).on_click(cx.listener(
                         |this, _, _, cx| {
                             this.active_path = None;
                             this.selection = Selection::None;
@@ -489,9 +489,9 @@ impl Workspace {
                                 .id(("region-color", i))
                                 .size(px(22.))
                                 .bg(color)
+                                .rounded_full()
                                 .border_2()
-                                .border_color(if active { t.foreground } else { color })
-                                .when(active, |d| d.border_4())
+                                .border_color(if active { t.fg } else { color })
                                 .cursor_pointer()
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.region_color = c;
@@ -515,7 +515,7 @@ impl Workspace {
             .gap_1()
             .px_4()
             .py_2()
-            .border_b_2()
+            .border_b_1()
             .border_color(t.border)
             .child(tool_chip("tool-select", "Select V", Tool::Select, cx))
             .child(tool_chip("tool-waypoint", "Waypoint W", Tool::Waypoint, cx))
@@ -525,20 +525,20 @@ impl Workspace {
             .child(div().w(px(2.)).h(px(22.)).mx_2().bg(t.border))
             .child(subtools)
             .child(div().flex_1())
-            .child(chip("snap", &snap_label, self.snap > 0., t.foreground, t.background, t).on_click(cx.listener(
+            .child(chip("snap", &snap_label, self.snap > 0., t).on_click(cx.listener(
                 |this, _, _, cx| {
                     let i = SNAP_STEPS.iter().position(|&s| s == this.snap).unwrap_or(0);
                     this.snap = SNAP_STEPS[(i + 1) % SNAP_STEPS.len()];
                     cx.notify();
                 },
             )))
-            .child(chip("sweep", "Sweep", self.show_sweep, t.foreground, t.background, t).on_click(cx.listener(
+            .child(chip("sweep", "Sweep", self.show_sweep, t).on_click(cx.listener(
                 |this, _, _, cx| {
                     this.show_sweep = !this.show_sweep;
                     cx.notify();
                 },
             )))
-            .child(button("fit", "Fit F", t.foreground, t.background, t).on_click(cx.listener(|this, _, w, cx| {
+            .child(button("fit", "Fit F", false, t).on_click(cx.listener(|this, _, w, cx| {
                 this.fit_view(&FitView, w, cx)
             })))
     }
@@ -548,17 +548,17 @@ impl Workspace {
             .flex()
             .items_center()
             .gap_1()
-            .child(button("file-new", "New", t.foreground, t.background, t).on_click(cx.listener(|this, _, w, cx| {
+            .child(button("file-new", "New", false, t).on_click(cx.listener(|this, _, w, cx| {
                 this.new_project(&NewProject, w, cx)
             })))
-            .child(button("file-open", "Open", t.foreground, t.background, t).on_click(cx.listener(|this, _, w, cx| {
+            .child(button("file-open", "Open", false, t).on_click(cx.listener(|this, _, w, cx| {
                 this.open_project(&OpenProject, w, cx)
             })))
-            .child(button("file-save", "Save", t.foreground, t.background, t).on_click(cx.listener(|this, _, w, cx| {
+            .child(button("file-save", "Save", false, t).on_click(cx.listener(|this, _, w, cx| {
                 this.save_project(&SaveProject, w, cx)
             })))
             .child(
-                solid_button("file-export", "Export JSON", t.secondary, t.secondary_fg, t)
+                primary_button("file-export", "Export JSON", t)
                     .on_click(cx.listener(|this, _, w, cx| this.export_json(&ExportJson, w, cx))),
             )
     }
@@ -574,18 +574,17 @@ impl Workspace {
                 .gap_2()
                 .px_2()
                 .h(px(28.))
-                .border_2()
-                .border_color(t.border)
+                .rounded(RADIUS)
                 .cursor_pointer()
-                .when(active, |d| d.bg(t.foreground).text_color(t.background))
-                .when(!active, move |d| d.hover(move |s| s.bg(t.secondary).text_color(t.secondary_fg)))
+                .when(active, |d| d.bg(alpha(t.accent, 0.15)).text_color(t.fg))
+                .when(!active, move |d| d.hover(move |s| s.bg(t.elevated)))
                 .child(div().text_sm().font_weight(FontWeight::MEDIUM).truncate().child(label))
                 .child(div().font_family(FONT_MONO).text_size(px(10.)).child(detail))
         };
 
         let mut paths = div().flex().flex_col().gap_1();
         for (i, path) in self.doc.paths.iter().enumerate() {
-            let len = format!("{:.2} M", path.length() / 1000.);
+            let len = format!("{:.2} m", path.length() / 1000.);
             paths = paths.child(row(("path", i), path.name.clone(), len, self.active_path == Some(i)).on_click(
                 cx.listener(move |this, _, _, cx| {
                     this.active_path = Some(i);
@@ -595,7 +594,7 @@ impl Workspace {
             ));
         }
         if self.doc.paths.is_empty() {
-            paths = paths.child(mono_label(t, "NO PATHS YET — PICK WAYPOINT AND CLICK THE TABLE"));
+            paths = paths.child(label(t, "No paths yet — pick Waypoint and click the table"));
         }
 
         let mut obstacles = div().flex().flex_col().gap_1();
@@ -630,12 +629,12 @@ impl Workspace {
             .h_full()
             .gap_5()
             .p_4()
-            .border_r_2()
+            .border_r_1()
             .border_color(t.border)
             .overflow_y_scroll()
-            .child(div().flex().flex_col().gap_2().child(section_title("Paths", t.primary)).child(paths))
-            .child(div().flex().flex_col().gap_2().child(section_title("Obstacles", t.foreground)).child(obstacles))
-            .child(div().flex().flex_col().gap_2().child(section_title("Regions", t.secondary)).child(regions))
+            .child(div().flex().flex_col().gap_2().child(section_title("Paths", t)).child(paths))
+            .child(div().flex().flex_col().gap_2().child(section_title("Obstacles", t)).child(obstacles))
+            .child(div().flex().flex_col().gap_2().child(section_title("Regions", t)).child(regions))
     }
 
     fn render_canvas(&mut self, t: &Theme, frame: Frame, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -716,7 +715,7 @@ impl Workspace {
         };
         let zoom = format!("{:.0}%", self.view.zoom * 100.);
         let active = self.active_path;
-        let length = self.active().map(|p| format!("LENGTH {:.3} M", p.length() / 1000.));
+        let length = self.active().map(|p| format!("{:.3} m", p.length() / 1000.));
         let gaps = self.active().map(|p| p.discontinuities().len()).unwrap_or(0);
         let a = self.ensure_analysis();
         let (events, clearance) = match &a.report {
@@ -731,39 +730,38 @@ impl Workspace {
             .gap_3()
             .px_4()
             .h(px(30.))
-            .border_t_2()
+            .border_t_1()
             .border_color(t.border)
-            .font_family(FONT_MONO)
-            .text_size(px(11.))
-            .child(div().w(px(150.)).child(hover.unwrap_or_default()))
-            .child(div().text_color(t.ink_muted).truncate().child(hint))
+            .text_size(px(12.))
+            .child(div().w(px(150.)).font_family(FONT_MONO).text_size(px(11.)).child(hover.unwrap_or_default()))
+            .child(div().text_color(t.muted).truncate().child(hint))
             .child(div().flex_1())
             .when_some(self.status.as_ref(), |d, s| {
-                d.child(div().truncate().text_color(if s.error { t.primary } else { t.foreground }).child(s.text.clone()))
+                d.child(div().truncate().text_color(if s.error { t.danger } else { t.fg }).child(s.text.clone()))
             })
             .when(active.is_some(), |d| {
                 d.children(length)
                     .child(badge(
-                        if events == 0 { "CLEAR".into() } else { format!("{events} COLLISION{}", if events == 1 { "" } else { "S" }) },
+                        if events == 0 { "clear".into() } else { format!("{events} collision{}", if events == 1 { "" } else { "s" }) },
                         events > 0,
-                        t.primary,
-                        t.primary_fg,
+                        t.danger,
+                        t.danger_fg,
                         t,
                     ))
-                    .when_some(clearance, |d, c| d.child(format!("MIN CLEARANCE {} MM", canvas::format_mm(c))))
+                    .when_some(clearance, |d, c| d.child(format!("min clearance {} mm", canvas::format_mm(c))))
                     .when(gaps > 0, |d| {
-                        d.child(badge(format!("{gaps} HEADING JUMP{}", if gaps == 1 { "" } else { "S" }), true, t.secondary, t.secondary_fg, t))
+                        d.child(badge(format!("{gaps} heading jump{}", if gaps == 1 { "" } else { "s" }), true, t.warning, t.accent_fg, t))
                     })
             })
-            .child(div().text_color(t.ink_muted).child(zoom))
+            .child(div().text_color(t.muted).child(zoom))
     }
 }
 
 fn shape_kind(s: &crate::geom::Shape) -> &'static str {
     match s {
-        crate::geom::Shape::Rect { .. } => "RECT",
-        crate::geom::Shape::Circle { .. } => "CIRCLE",
-        crate::geom::Shape::Polygon { .. } => "POLY",
+        crate::geom::Shape::Rect { .. } => "rect",
+        crate::geom::Shape::Circle { .. } => "circle",
+        crate::geom::Shape::Polygon { .. } => "polygon",
     }
 }
 
@@ -798,12 +796,12 @@ impl Render for Workspace {
             .project_path
             .as_ref()
             .and_then(|p| p.file_name())
-            .map(|n| n.to_string_lossy().to_uppercase())
-            .unwrap_or_else(|| "UNTITLED".into());
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Untitled".into());
         let subtitle = format!(
             "{name}{} · {} {}",
             if self.dirty { " *" } else { "" },
-            self.doc.map.name.to_uppercase(),
+            self.doc.map.name,
             self.doc.map.year
         );
 

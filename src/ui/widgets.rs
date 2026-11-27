@@ -1,116 +1,94 @@
-//! Small building blocks in the RUR Robotics style: square corners, ink
-//! borders, mono uppercase labels, display titles ending in a coloured dot.
+//! Small building blocks: section labels, toggles, buttons and badges.
 
 use gpui::{Div, ElementId, FontWeight, Rgba, Stateful, div, prelude::*, px};
 
-use crate::theme::{FONT_DISPLAY, FONT_MONO, Theme};
+use crate::theme::{FONT_MONO, RADIUS, Theme};
 
-/// "PATHS." — Oswald bold uppercase with a coloured full stop.
-pub fn section_title(title: &str, dot: Rgba) -> Div {
-    div()
-        .flex()
-        .font_family(FONT_DISPLAY)
-        .font_weight(FontWeight::BOLD)
-        .text_size(px(18.))
-        .line_height(px(22.))
-        .child(title.to_uppercase())
-        .child(div().text_color(dot).child("."))
+/// Small semibold section heading.
+pub fn section_title(title: &str, t: &Theme) -> Div {
+    div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(t.fg).child(title.to_string())
 }
 
-/// A panel section: coloured strip on top, padded content below.
-pub fn section(t: &Theme, strip: Rgba) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .pb_4()
-        .border_b_2()
-        .border_color(t.border)
-        .child(div().h(px(6.)).bg(strip).mx(px(-16.)).mb_2())
+/// A panel section separated from the next by a hairline.
+pub fn section(t: &Theme) -> Div {
+    div().flex().flex_col().gap_2().py_3().border_b_1().border_color(t.border)
 }
 
-pub fn mono_label(t: &Theme, text: impl Into<gpui::SharedString>) -> Div {
-    div()
-        .font_family(FONT_MONO)
-        .font_weight(FontWeight::BOLD)
-        .text_size(px(11.))
-        .text_color(t.ink_muted)
-        .child(text.into())
+/// Secondary text label.
+pub fn label(t: &Theme, text: impl Into<gpui::SharedString>) -> Div {
+    div().text_size(px(12.)).text_color(t.muted).child(text.into())
 }
 
-/// Toggle chip (FilterChip on the website): 2px border, filled when active.
-pub fn chip(id: impl Into<ElementId>, label: &str, active: bool, color: Rgba, color_fg: Rgba, t: &Theme) -> Stateful<Div> {
+/// Toggle: subtle outline, filled with the accent when active.
+pub fn chip(id: impl Into<ElementId>, text: &str, active: bool, t: &Theme) -> Stateful<Div> {
     let t = *t;
     div()
         .id(id)
         .flex()
         .items_center()
+        .gap_1()
         .h(px(26.))
         .px_2()
-        .border_2()
-        .border_color(if active { color } else { t.border })
-        .font_family(FONT_MONO)
-        .font_weight(FontWeight::BOLD)
-        .text_size(px(11.))
+        .rounded(RADIUS)
+        .border_1()
+        .text_size(px(12.))
         .cursor_pointer()
-        .when(active, |d| d.bg(color).text_color(color_fg))
-        .when(!active, move |d| d.hover(move |s| s.bg(t.foreground).text_color(t.background)))
-        .child(label.to_uppercase())
+        .when(active, |d| d.bg(t.accent).border_color(t.accent).text_color(t.accent_fg))
+        .when(!active, move |d| d.border_color(t.border).hover(move |s| s.bg(t.elevated)))
+        .child(text.to_string())
 }
 
-/// Push button with a filled hover in `accent` (the website's wipe, without the sweep).
-pub fn button(id: impl Into<ElementId>, label: &str, accent: Rgba, accent_fg: Rgba, t: &Theme) -> Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .justify_center()
-        .h(px(26.))
-        .px_2()
-        .border_2()
-        .border_color(t.border)
-        .font_family(FONT_MONO)
-        .font_weight(FontWeight::BOLD)
-        .text_size(px(11.))
-        .cursor_pointer()
-        .hover(move |s| s.bg(accent).text_color(accent_fg))
-        .child(label.to_uppercase())
-}
-
-/// Solid call-to-action button (the navbar's "Join us").
-pub fn solid_button(id: impl Into<ElementId>, label: &str, bg: Rgba, fg: Rgba, t: &Theme) -> Stateful<Div> {
+/// Outline button; `danger` tints the hover red.
+pub fn button(id: impl Into<ElementId>, text: &str, danger: bool, t: &Theme) -> Stateful<Div> {
     let t = *t;
     div()
         .id(id)
         .flex()
         .items_center()
         .justify_center()
+        .gap_1()
+        .h(px(26.))
+        .px_2()
+        .rounded(RADIUS)
+        .border_1()
+        .border_color(t.border)
+        .text_size(px(12.))
+        .cursor_pointer()
+        .hover(move |s| if danger { s.bg(t.danger).border_color(t.danger).text_color(t.danger_fg) } else { s.bg(t.elevated) })
+        .child(text.to_string())
+}
+
+/// Filled primary button.
+pub fn primary_button(id: impl Into<ElementId>, text: &str, t: &Theme) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap_1()
         .h(px(26.))
         .px_3()
-        .bg(bg)
-        .text_color(fg)
-        .border_2()
-        .border_color(bg)
-        .font_family(FONT_MONO)
-        .font_weight(FontWeight::BOLD)
-        .text_size(px(11.))
+        .rounded(RADIUS)
+        .bg(t.accent)
+        .text_color(t.accent_fg)
+        .text_size(px(12.))
+        .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
-        .hover(move |s| s.bg(t.foreground).border_color(t.foreground).text_color(t.background))
-        .child(label.to_uppercase())
+        .hover(|s| s.opacity(0.9))
+        .child(text.to_string())
 }
 
-/// Status chip: outlined, or solid when `alarm`.
-pub fn badge(label: String, alarm: bool, color: Rgba, color_fg: Rgba, t: &Theme) -> Div {
+/// Status pill: neutral, or filled with `color` when `alarm`.
+pub fn badge(text: String, alarm: bool, color: Rgba, color_fg: Rgba, t: &Theme) -> Div {
     div()
         .flex()
         .items_center()
         .px_2()
         .h(px(18.))
-        .border_2()
-        .border_color(if alarm { color } else { t.border })
+        .rounded_full()
         .when(alarm, |d| d.bg(color).text_color(color_fg))
+        .when(!alarm, |d| d.bg(t.elevated).text_color(t.muted))
         .font_family(FONT_MONO)
-        .font_weight(FontWeight::BOLD)
         .text_size(px(10.))
-        .child(label)
+        .child(text)
 }

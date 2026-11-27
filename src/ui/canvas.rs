@@ -14,6 +14,7 @@ use crate::geom::path::{Arc, Hermite};
 use crate::geom::{Path, Sample, SegmentKind, Shape, Vec2, vec2};
 use crate::model::{Doc, Origin, RegionColor};
 use crate::theme::{FONT_MONO, Theme, alpha};
+use gpui::rgb;
 
 /// Handle hit radius (px).
 pub const HIT_RADIUS: f64 = 9.;
@@ -210,11 +211,12 @@ pub struct Frame {
 
 pub fn region_color(theme: &Theme, c: RegionColor) -> gpui::Rgba {
     match c {
-        RegionColor::Primary => theme.primary,
-        RegionColor::Secondary => theme.secondary,
-        RegionColor::Accent => theme.accent,
-        RegionColor::Tertiary => theme.tertiary,
-        RegionColor::Muted => theme.muted,
+        RegionColor::Blue => rgb(0x3b82f6),
+        RegionColor::Green => rgb(0x22c55e),
+        RegionColor::Amber => rgb(0xf59e0b),
+        RegionColor::Red => rgb(0xef4444),
+        RegionColor::Violet => rgb(0x8b5cf6),
+        RegionColor::Gray => theme.muted,
     }
 }
 
@@ -379,8 +381,8 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
         let mut p = Painter { window, cx, x };
 
         // Grid: 100 mm minor, 500 mm major lines.
-        let minor = alpha(t.foreground, if map.background.is_some() { 0.10 } else { 0.07 });
-        let major = alpha(t.foreground, 0.18);
+        let minor = alpha(t.fg, if map.background.is_some() { 0.10 } else { 0.07 });
+        let major = alpha(t.fg, 0.18);
         for (step, color) in [(100., minor), (500., major)] {
             if step * x.zoom < 6. {
                 continue;
@@ -402,13 +404,13 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
         let mut v = 0.;
         while v <= map.width + 1e-6 {
             let s = x.to_screen(vec2(v, if x.y_down { 0. } else { map.height }));
-            p.text(&format_mm(v), s - vec2(0., 16.), 10., t.ink_muted, label.clone(), true);
+            p.text(&format_mm(v), s - vec2(0., 16.), 10., t.muted, label.clone(), true);
             v += 500.;
         }
         let mut v = 0.;
         while v <= map.height + 1e-6 {
             let s = x.to_screen(vec2(0., v));
-            p.text(&format_mm(v), s - vec2(34., 0.), 10., t.ink_muted, label.clone(), false);
+            p.text(&format_mm(v), s - vec2(34., 0.), 10., t.muted, label.clone(), false);
             v += 500.;
         }
 
@@ -418,9 +420,9 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
             let pts = p.shape_points(&region.shape);
             p.fill(&pts, alpha(c, 0.28));
             let selected = frame.selection == Selection::Region(i);
-            p.stroke_closed(&pts, if selected { 4. } else { 2. }, if selected { t.foreground.into() } else { alpha(c, 1.) });
+            p.stroke_closed(&pts, if selected { 4. } else { 2. }, if selected { t.fg.into() } else { alpha(c, 1.) });
             let center = x.to_screen(region.shape.center());
-            p.text(&region.name.to_uppercase(), center, 11., t.foreground, mono(FontWeight::BOLD), true);
+            p.text(&region.name, center, 11., t.fg, mono(FontWeight::BOLD), true);
         }
         // Swept footprint and collisions of the active path.
         if let (Some(ai), true) = (frame.active_path, frame.show_sweep)
@@ -428,7 +430,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
         {
             let robot = &frame.doc.robot;
             let colliding = frame.report.as_ref().map(|r| r.colliding.as_slice()).unwrap_or(&[]);
-            let ghost = alpha(t.ink_muted, 0.35);
+            let ghost = alpha(t.muted, 0.35);
             let mut last: Option<Sample> = None;
             for (k, s) in samples.iter().enumerate() {
                 let hit = colliding.get(k).copied().unwrap_or(false);
@@ -440,8 +442,8 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
                 }
                 let body: Vec<Vec2> = robot.corners(s.pose).iter().map(|&c| x.to_screen(c)).collect();
                 if hit {
-                    p.fill(&body, alpha(t.primary, 0.10));
-                    p.stroke_closed(&body, 1.5, alpha(t.primary, 0.85));
+                    p.fill(&body, alpha(t.danger, 0.10));
+                    p.stroke_closed(&body, 1.5, alpha(t.danger, 0.85));
                 } else {
                     p.stroke_closed(&body, 1., ghost);
                 }
@@ -454,7 +456,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
                     let c = circle_points(poses[i].pos(), robot.sweep_radius(), 64);
                     let mut pts: Vec<Vec2> = c.iter().map(|&q| x.to_screen(q)).collect();
                     pts.push(pts[0]);
-                    p.dashed(&pts, 1., 5., alpha(t.tertiary_ink, 0.7));
+                    p.dashed(&pts, 1., 5., alpha(t.accent, 0.7));
                 }
             }
         }
@@ -462,11 +464,11 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
         // Obstacles above the sweep so collisions never hide them.
         for (i, obstacle) in map.obstacles.iter().enumerate() {
             let pts = p.shape_points(&obstacle.shape);
-            p.fill(&pts, alpha(t.foreground, 0.22));
+            p.fill(&pts, alpha(t.fg, 0.22));
             let selected = frame.selection == Selection::Obstacle(i);
-            p.stroke_closed(&pts, if selected { 4. } else { 2. }, if selected { t.primary } else { t.foreground });
+            p.stroke_closed(&pts, if selected { 4. } else { 2. }, if selected { t.accent } else { t.fg });
             let center = x.to_screen(obstacle.shape.center());
-            p.text(&obstacle.name.to_uppercase(), center, 11., t.foreground, mono(FontWeight::BOLD), true);
+            p.text(&obstacle.name, center, 11., t.fg, mono(FontWeight::BOLD), true);
         }
 
         // Paths: inactive first, active on top.
@@ -488,9 +490,9 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
                 let (w, color): (f64, Hsla) = if !active {
                     (2., alpha(t.muted, 0.9))
                 } else if Some(si) == selected_seg {
-                    (4., t.primary.into())
+                    (4., t.accent.into())
                 } else {
-                    (3., t.foreground.into())
+                    (3., t.fg.into())
                 };
                 if seg.reverse {
                     p.dashed(line, w, 9., color);
@@ -506,8 +508,8 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
             // Heading discontinuities.
             for si in path.discontinuities() {
                 let c = x.to_screen(poses[si].pos());
-                p.stroke(&[c - vec2(9., 9.), c + vec2(9., 9.)], 3., t.primary);
-                p.stroke(&[c - vec2(9., -9.), c + vec2(9., -9.)], 3., t.primary);
+                p.stroke(&[c - vec2(9., 9.), c + vec2(9., 9.)], 3., t.warning);
+                p.stroke(&[c - vec2(9., -9.), c + vec2(9., -9.)], 3., t.warning);
             }
             // Turn-in-place glyphs.
             for (si, seg) in path.segments.iter().enumerate() {
@@ -519,7 +521,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
                     let n = ((angle.abs() / (PI / 24.)).ceil() as usize).max(2);
                     let r = 24.;
                     let arc: Vec<Vec2> = (0..=n).map(|k| c + x.dir(from + angle * k as f64 / n as f64) * r).collect();
-                    let color = if Some(si) == selected_seg { t.primary } else { t.tertiary_ink };
+                    let color = if Some(si) == selected_seg { t.accent } else { t.fg };
                     p.stroke(&arc, 2.5, color);
                     // Arrow head at the end of the sweep.
                     let tip = *arc.last().unwrap();
@@ -534,7 +536,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
             // Body heading ticks at each waypoint.
             for pose in &poses {
                 let c = x.to_screen(pose.pos());
-                p.stroke(&[c, c + x.dir(pose.theta) * 18.], 2., t.foreground);
+                p.stroke(&[c, c + x.dir(pose.theta) * 18.], 2., t.fg);
             }
             // Robot outline at the selected waypoint.
             if let Selection::Waypoint { path: sp, index } = frame.selection
@@ -542,9 +544,9 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
                 && let Some(pose) = poses.get(index)
             {
                 let body: Vec<Vec2> = frame.doc.robot.corners(*pose).iter().map(|&c| x.to_screen(c)).collect();
-                p.stroke_closed(&body, 2.5, t.tertiary_ink);
+                p.stroke_closed(&body, 2.5, t.accent);
                 let front = x.to_screen(pose.to_world(vec2(frame.doc.robot.length / 2. + frame.doc.robot.offset.x, 0.)));
-                p.stroke(&[x.to_screen(pose.pos()), front], 2.5, t.tertiary_ink);
+                p.stroke(&[x.to_screen(pose.pos()), front], 2.5, t.accent);
             }
 
             // Handles.
@@ -554,19 +556,19 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
             };
             for (h, at, anchor) in handles(path, &x) {
                 if let Some(a) = anchor {
-                    p.stroke(&[a, at], 1.5, t.ink_muted);
+                    p.stroke(&[a, at], 1.5, t.muted);
                 }
                 match h {
                     Handle::Pose(_) | Handle::ArcEnd(_) => {
                         let idx = handle_waypoint(h);
                         let selected = selected_wp == Some(idx);
-                        let fill: Hsla = if selected { t.primary.into() } else { t.background.into() };
-                        p.square(at, 7., fill, t.foreground, 2.);
+                        let fill: Hsla = if selected { t.accent.into() } else { t.bg.into() };
+                        p.square(at, 7., fill, t.fg, 2.);
                         let num = format!("{idx}");
-                        p.text(&num, at + vec2(14., -12.), 10., t.foreground, mono(FontWeight::BOLD), false);
+                        p.text(&num, at + vec2(14., -12.), 10., t.fg, mono(FontWeight::BOLD), false);
                     }
                     _ => {
-                        p.square(at, 4.5, t.secondary, t.foreground, 1.5);
+                        p.square(at, 4.5, t.bg, t.accent, 2.);
                     }
                 }
             }
@@ -574,7 +576,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
 
         // Transient preview.
         let preview_color = |region: &Option<RegionColor>| -> Hsla {
-            region.map_or(t.foreground.into(), |c| alpha(region_color(&t, c), 1.))
+            region.map_or(t.fg.into(), |c| alpha(region_color(&t, c), 1.))
         };
         match &frame.preview {
             Preview::None => {}
@@ -593,26 +595,26 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
                 let color = preview_color(region);
                 p.dashed(&pts, 2., 6., color);
                 for q in points {
-                    p.square(x.to_screen(*q), 4., t.background, color, 2.);
+                    p.square(x.to_screen(*q), 4., t.bg, color, 2.);
                 }
             }
             Preview::Measure { from, to } => {
                 let (a, b) = (x.to_screen(*from), x.to_screen(*to));
-                p.stroke(&[a, b], 2., t.primary);
-                p.square(a, 3., t.primary, t.primary, 0.);
-                p.square(b, 3., t.primary, t.primary, 0.);
+                p.stroke(&[a, b], 2., t.accent);
+                p.square(a, 3., t.accent, t.accent, 0.);
+                p.square(b, 3., t.accent, t.accent, 0.);
                 let d = *to - *from;
-                let label = format!("{} MM  {:.1}°", format_mm(d.length()), d.angle().to_degrees());
-                p.text(&label, b + vec2(12., 14.), 11., t.primary, mono(FontWeight::BOLD), false);
+                let label = format!("{} mm  {:.1}°", format_mm(d.length()), d.angle().to_degrees());
+                p.text(&label, b + vec2(12., 14.), 11., t.accent, mono(FontWeight::BOLD), false);
             }
             Preview::Ghost { path, from } => {
                 let samples = path.sample(4. / x.zoom);
                 let lines = segment_polylines(&samples, path.segments.len(), &x);
                 for line in lines.iter().skip(*from) {
-                    p.dashed(line, 2., 6., alpha(t.foreground, 0.55));
+                    p.dashed(line, 2., 6., alpha(t.fg, 0.55));
                 }
                 if let Some(end) = path.poses().last() {
-                    p.square(x.to_screen(end.pos()), 5., alpha(t.background, 0.6), alpha(t.foreground, 0.6), 2.);
+                    p.square(x.to_screen(end.pos()), 5., alpha(t.bg, 0.6), alpha(t.fg, 0.6), 2.);
                 }
             }
         }
@@ -620,13 +622,13 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
         // Table border.
         let mut border: Vec<Vec2> = table.iter().map(|&c| x.to_screen(c)).collect();
         border.push(border[0]);
-        p.stroke(&border, 4., t.border);
+        p.stroke(&border, 2., t.border_strong);
 
         // Origin axes.
         let o = x.to_screen(Vec2::ZERO);
-        p.stroke(&[o, o + x.dir(0.) * 56.], 3., t.primary);
-        p.stroke(&[o, o + x.dir(PI / 2.) * 56.], 3., t.tertiary_ink);
-        p.text("X", o + x.dir(0.) * 66., 10., t.primary, mono(FontWeight::BOLD), true);
-        p.text("Y", o + x.dir(PI / 2.) * 66., 10., t.tertiary_ink, mono(FontWeight::BOLD), true);
+        p.stroke(&[o, o + x.dir(0.) * 56.], 3., t.danger);
+        p.stroke(&[o, o + x.dir(PI / 2.) * 56.], 3., t.success);
+        p.text("X", o + x.dir(0.) * 66., 10., t.danger, mono(FontWeight::BOLD), true);
+        p.text("Y", o + x.dir(PI / 2.) * 66., 10., t.success, mono(FontWeight::BOLD), true);
     });
 }

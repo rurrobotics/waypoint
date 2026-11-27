@@ -506,6 +506,50 @@ impl Workspace {
         cx.notify();
     }
 
+    /// The visibility flag of a path (waypoints share their path's), obstacle or region.
+    fn hidden_flag(doc: &mut Doc, what: Selection) -> Option<&mut bool> {
+        match what {
+            Selection::None => None,
+            Selection::Path(i) | Selection::Waypoint { path: i, .. } => doc.paths.get_mut(i).map(|p| &mut p.hidden),
+            Selection::Obstacle(i) => doc.map.obstacles.get_mut(i).map(|o| &mut o.hidden),
+            Selection::Region(i) => doc.map.regions.get_mut(i).map(|r| &mut r.hidden),
+        }
+    }
+
+    /// True if the item isn't drawn on the table.
+    pub(super) fn is_hidden(&self, what: Selection) -> bool {
+        match what {
+            Selection::None => false,
+            Selection::Path(i) | Selection::Waypoint { path: i, .. } => self.doc.paths.get(i).is_some_and(|p| p.hidden),
+            Selection::Obstacle(i) => self.doc.map.obstacles.get(i).is_some_and(|o| o.hidden),
+            Selection::Region(i) => self.doc.map.regions.get(i).is_some_and(|r| r.hidden),
+        }
+    }
+
+    /// Hides or shows one path, obstacle or region as one undo step.
+    pub(super) fn toggle_hidden(&mut self, what: Selection, cx: &mut Context<Self>) {
+        self.edit_doc(cx, |d| {
+            if let Some(h) = Self::hidden_flag(d, what) {
+                *h = !*h;
+            }
+        });
+        cx.notify();
+    }
+
+    /// Hides every item of an outline group, or shows them all if all are hidden.
+    pub(super) fn toggle_group_hidden(&mut self, group: panels::Group, cx: &mut Context<Self>) {
+        self.edit_doc(cx, |d| {
+            let mut flags: Vec<&mut bool> = match group {
+                panels::Group::Paths => d.paths.iter_mut().map(|p| &mut p.hidden).collect(),
+                panels::Group::Obstacles => d.map.obstacles.iter_mut().map(|o| &mut o.hidden).collect(),
+                panels::Group::Regions => d.map.regions.iter_mut().map(|r| &mut r.hidden).collect(),
+            };
+            let hide = flags.iter().any(|h| !**h);
+            flags.iter_mut().for_each(|h| **h = hide);
+        });
+        cx.notify();
+    }
+
     fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
         if self.new_menu {
             self.new_menu = false;

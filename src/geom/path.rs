@@ -239,11 +239,14 @@ pub struct Path {
     pub start: Pose,
     #[serde(default)]
     pub segments: Vec<Segment>,
+    /// Not drawn or clickable on the table; still saved, exported and checked.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 impl Path {
     pub fn new(name: impl Into<String>, start: Pose) -> Self {
-        Self { name: name.into(), start, segments: Vec::new() }
+        Self { name: name.into(), start, segments: Vec::new(), hidden: false }
     }
 
     /// Waypoint poses: the start followed by every segment's end.

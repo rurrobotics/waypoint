@@ -83,6 +83,7 @@ impl Workspace {
 
         // Handles of the selected obstacle or region come first.
         if self.pending.is_none()
+            && !self.is_hidden(self.selection)
             && let Some(shape) = self.selected_shape().cloned()
             && let Some(handle) = canvas::hit_shape_handle(&shape, &x, mouse)
         {
@@ -96,6 +97,7 @@ impl Workspace {
         // Handles on the active path win unless a shape or measurement is armed.
         if matches!(self.pending, None | Some(Pending::DrawPath))
             && let Some(ai) = self.active_path
+            && !self.doc.paths[ai].hidden
             && let Some(h) = canvas::hit_handle(&self.doc.paths[ai], &x, mouse)
         {
             self.selection = Selection::Waypoint { path: ai, index: canvas::handle_waypoint(h) };
@@ -135,7 +137,7 @@ impl Workspace {
 
     fn select_at(&mut self, world: Vec2, mouse: Vec2, x: &Xform) {
         // Waypoints of other paths, then any path line.
-        for (i, path) in self.doc.paths.iter().enumerate() {
+        for (i, path) in self.doc.paths.iter().enumerate().filter(|(_, p)| !p.hidden) {
             if let Some(h) = canvas::hit_handle(path, x, mouse)
                 && matches!(h, Handle::Pose(_) | Handle::ArcEnd(_))
             {
@@ -144,10 +146,12 @@ impl Workspace {
                 return;
             }
         }
+        let hidden: Vec<bool> = self.doc.paths.iter().map(|p| p.hidden).collect();
         let samples = &self.ensure_analysis().samples;
         let near = samples
             .iter()
             .enumerate()
+            .filter(|&(i, _)| !hidden[i])
             .map(|(i, s)| (i, canvas::path_distance(s, x, mouse)))
             .filter(|&(_, d)| d < 6.)
             .min_by(|a, b| a.1.total_cmp(&b.1));
@@ -157,9 +161,9 @@ impl Workspace {
             return;
         }
 
-        let picked = if let Some(i) = self.doc.map.obstacles.iter().rposition(|o| o.shape.contains(world)) {
+        let picked = if let Some(i) = self.doc.map.obstacles.iter().rposition(|o| !o.hidden && o.shape.contains(world)) {
             Selection::Obstacle(i)
-        } else if let Some(i) = self.doc.map.regions.iter().rposition(|r| r.shape.contains(world)) {
+        } else if let Some(i) = self.doc.map.regions.iter().rposition(|r| !r.hidden && r.shape.contains(world)) {
             Selection::Region(i)
         } else {
             Selection::None
@@ -242,11 +246,11 @@ impl Workspace {
         let map = &mut self.doc.map;
         if region {
             let n = map.regions.len() + 1;
-            map.regions.push(Region { name: format!("Region {n}"), color, shape });
+            map.regions.push(Region { name: format!("Region {n}"), color, shape, hidden: false });
             self.selection = Selection::Region(map.regions.len() - 1);
         } else {
             let n = map.obstacles.len() + 1;
-            map.obstacles.push(Obstacle { name: format!("Obstacle {n}"), shape });
+            map.obstacles.push(Obstacle { name: format!("Obstacle {n}"), shape, hidden: false });
             self.selection = Selection::Obstacle(map.obstacles.len() - 1);
         }
         self.history.push(before);

@@ -17,7 +17,7 @@ struct File<'a> {
     units: Units,
     table: Table<'a>,
     robot: &'a Robot,
-    paths: &'a [Path],
+    paths: Vec<Path>,
 }
 
 #[derive(Serialize)]
@@ -57,7 +57,8 @@ impl Exporter for JsonExporter {
                 origin: doc.map.origin,
             },
             robot: &doc.robot,
-            paths: &doc.paths,
+            // Visibility is an editor setting, not part of the path.
+            paths: doc.paths.iter().map(|p| Path { hidden: false, ..p.clone() }).collect(),
         };
         Ok(serde_json::to_string_pretty(&file)?)
     }
@@ -90,5 +91,16 @@ mod tests {
         // The exported paths read back as the same paths.
         let back: Vec<Path> = serde_json::from_value(v["paths"].clone()).unwrap();
         assert_eq!(back, vec![path]);
+    }
+
+    #[test]
+    fn hidden_paths_are_exported_without_the_flag() {
+        let mut doc = Doc::default();
+        let mut path = Path::new("Hidden", Pose::default());
+        path.hidden = true;
+        doc.paths.push(path);
+        let text = JsonExporter.export(&doc).unwrap();
+        assert!(text.contains("\"Hidden\""));
+        assert!(!text.contains("hidden"), "{text}");
     }
 }

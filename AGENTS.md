@@ -77,6 +77,9 @@ drags. Keep it that way; don't reintroduce tool modes.
   segment kinds are internally tagged (`"type"`) and flattened into their
   parent. Changing them changes the project and export formats: bump the
   version and note it as a breaking change.
+- Paths, obstacles and regions have a `hidden` flag (saved only when true,
+  stripped from the export). Hidden items are skipped when painting and
+  hit-testing on the canvas, but still count in the collision analysis.
 - UI style: neutral zinc palette with a single blue accent (`theme.rs`), 1px
   borders, `RADIUS` corners, sentence case, Lucide icons with tooltips on
   icon-only buttons. Use `Theme` tokens, never hard-coded colours (region

@@ -468,7 +468,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
         }
 
         // Regions.
-        for (i, region) in map.regions.iter().enumerate() {
+        for (i, region) in map.regions.iter().enumerate().filter(|(_, r)| !r.hidden) {
             let c = region_color(&t, region.color);
             let pts = p.shape_points(&region.shape);
             p.fill(&pts, alpha(c, 0.28));
@@ -480,6 +480,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
         // Swept footprint and collisions of the active path.
         if let (Some(ai), true) = (frame.active_path, frame.show_sweep)
             && let (Some(path), Some(samples)) = (frame.doc.paths.get(ai), frame.samples.get(ai))
+            && !path.hidden
         {
             let robot = &frame.doc.robot;
             let colliding = frame.report.as_ref().map(|r| r.colliding.as_slice()).unwrap_or(&[]);
@@ -515,7 +516,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
         }
 
         // Obstacles above the sweep so collisions never hide them.
-        for (i, obstacle) in map.obstacles.iter().enumerate() {
+        for (i, obstacle) in map.obstacles.iter().enumerate().filter(|(_, o)| !o.hidden) {
             let pts = p.shape_points(&obstacle.shape);
             p.fill(&pts, alpha(t.fg, 0.22));
             let selected = frame.selection == Selection::Obstacle(i);
@@ -528,6 +529,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
         let order: Vec<usize> = (0..frame.doc.paths.len())
             .filter(|&i| Some(i) != frame.active_path)
             .chain(frame.active_path)
+            .filter(|&i| !frame.doc.paths[i].hidden)
             .collect();
         for i in order {
             let (Some(path), Some(samples)) = (frame.doc.paths.get(i), frame.samples.get(i)) else {
@@ -630,8 +632,8 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mu
 
         // Handles of the selected obstacle or region.
         let selected_shape = match frame.selection {
-            Selection::Obstacle(i) => map.obstacles.get(i).map(|o| &o.shape),
-            Selection::Region(i) => map.regions.get(i).map(|r| &r.shape),
+            Selection::Obstacle(i) => map.obstacles.get(i).filter(|o| !o.hidden).map(|o| &o.shape),
+            Selection::Region(i) => map.regions.get(i).filter(|r| !r.hidden).map(|r| &r.shape),
             _ => None,
         };
         if let Some(shape) = selected_shape {

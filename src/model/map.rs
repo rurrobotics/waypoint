@@ -35,6 +35,9 @@ pub struct Map {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Obstacle {
     pub name: String,
+    /// Not drawn or clickable on the table; still saved, exported and checked.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
     #[serde(flatten)]
     pub shape: Shape,
 }
@@ -44,6 +47,9 @@ pub struct Obstacle {
 pub struct Region {
     pub name: String,
     pub color: RegionColor,
+    /// Not drawn or clickable on the table; still saved, exported and checked.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
     #[serde(flatten)]
     pub shape: Shape,
 }
@@ -105,14 +111,18 @@ mod tests {
         map.obstacles.push(Obstacle {
             name: "Ramp".into(),
             shape: Shape::Rect { center: vec2(1500., 1800.), size: vec2(1200., 400.), rotation: 0. },
+            hidden: false,
         });
         map.regions.push(Region {
             name: "Start".into(),
             color: RegionColor::Blue,
             shape: Shape::Circle { center: vec2(200., 200.), radius: 150. },
+            hidden: true,
         });
         let json = serde_json::to_string(&map).unwrap();
+        // `hidden` is only written when set.
         assert!(json.contains(r#"{"name":"Ramp","type":"rect","center":[1500.0,1800.0]"#), "{json}");
+        assert!(json.contains(r#"{"name":"Start","color":"blue","hidden":true,"type":"circle""#), "{json}");
         assert_eq!(serde_json::from_str::<Map>(&json).unwrap(), map);
     }
 

@@ -14,7 +14,9 @@ use crate::theme::{FONT_MONO, RADIUS, Theme, alpha};
 use crate::ui::canvas::{self, Selection};
 use crate::ui::dock::{PanelId, Side};
 use crate::ui::fields::Field;
-use crate::ui::widgets::{button_icon, chip, icon, icon_button, label, primary_button, section, section_title};
+use crate::ui::widgets::{
+    button_icon, chip, icon, icon_button, label, primary_button, section, section_title, tooltip,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SettingsTab {
@@ -81,6 +83,25 @@ fn waypoint_label(path: &crate::geom::Path, index: usize) -> String {
         }
         SegmentKind::Hermite { .. } => format!("Hermite{rev}"),
     }
+}
+
+/// Small eye toggle for outline rows and group headers. Visible items only show
+/// it while hovering `group`; hidden ones always do, crossed out.
+fn eye_toggle(id: SharedString, hidden: bool, group: &'static str, tip: &str, t: &Theme) -> Stateful<Div> {
+    let t = *t;
+    div()
+        .id(id)
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(px(22.))
+        .rounded(RADIUS)
+        .when(!hidden, |d| d.opacity(0.).group_hover(group, |s| s.opacity(1.)))
+        .hover(move |s| s.bg(t.elevated))
+        .tooltip(tooltip(tip.to_string()))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(icon(if hidden { Icon::EyeOff } else { Icon::Eye }, 13., t.muted))
 }
 
 /// What an outline row shows and selects.
@@ -323,6 +344,17 @@ impl Workspace {
         let t = *t;
         let active = self.selection == selected;
         let trash_id = SharedString::from(format!("{id}-delete"));
+        let eye_id = SharedString::from(format!("{id}-visibility"));
+        let hidden = self.is_hidden(selected);
+        // Waypoints follow their path's visibility; only top-level rows toggle it.
+        let eye = (depth == 0).then(|| {
+            eye_toggle(eye_id, hidden, "outline-row", if hidden { "Show" } else { "Hide" }, &t).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.toggle_hidden(selected, cx);
+                },
+            ))
+        });
         div()
             .id(id)
             .group("outline-row")
@@ -336,9 +368,18 @@ impl Workspace {
             .cursor_pointer()
             .when(active, |d| d.bg(alpha(t.accent, 0.15)))
             .when(!active, move |d| d.hover(move |s| s.bg(t.elevated)))
-            .child(lead)
-            .child(div().flex_1().min_w_0().text_size(px(13.)).truncate().child(name))
+            .child(div().flex().when(hidden, |d| d.opacity(0.4)).child(lead))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(px(13.))
+                    .truncate()
+                    .when(hidden, |d| d.text_color(t.muted))
+                    .child(name),
+            )
             .child(div().font_family(FONT_MONO).text_size(px(10.)).text_color(t.muted).child(detail))
+            .children(eye)
             .child(
                 div()
                     .id(trash_id)
@@ -369,8 +410,24 @@ impl Workspace {
     fn group_header(&self, g: Group, title: &str, count: usize, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
         let collapsed = self.collapsed.contains(&g);
         let t = *t;
+        let all_hidden = count > 0
+            && match g {
+                Group::Paths => self.doc.paths.iter().all(|p| p.hidden),
+                Group::Obstacles => self.doc.map.obstacles.iter().all(|o| o.hidden),
+                Group::Regions => self.doc.map.regions.iter().all(|r| r.hidden),
+            };
+        let tip = format!("{} all {}", if all_hidden { "Show" } else { "Hide" }, title.to_lowercase());
+        let eye = (count > 0).then(|| {
+            eye_toggle(format!("group-{title}-visibility").into(), all_hidden, "outline-group", &tip, &t).on_click(
+                cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.toggle_group_hidden(g, cx);
+                }),
+            )
+        });
         div()
             .id(SharedString::from(format!("group-{title}")))
+            .group("outline-group")
             .flex()
             .items_center()
             .gap_1()
@@ -380,6 +437,9 @@ impl Workspace {
             .child(icon(if collapsed { Icon::ChevronRight } else { Icon::ChevronDown }, 14., t.muted))
             .child(section_title(title, &t))
             .child(div().text_size(px(11.)).text_color(t.muted).child(count.to_string()))
+            .child(div().flex_1())
+            .children(eye)
+            .pr_1()
             .on_click(cx.listener(move |this, _, _, cx| {
                 if !this.collapsed.remove(&g) {
                     this.collapsed.insert(g);

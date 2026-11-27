@@ -375,7 +375,7 @@ fn shape_handle_at(ws: &Entity<Workspace>, cx: &mut VisualTestContext, h: crate:
 
 fn set_obstacle(ws: &Entity<Workspace>, cx: &mut VisualTestContext, shape: Shape) {
     ws.update(cx, |w, cx| {
-        w.doc.map.obstacles = vec![crate::model::Obstacle { name: "Box".into(), shape }];
+        w.doc.map.obstacles = vec![crate::model::Obstacle { name: "Box".into(), shape, hidden: false }];
         w.selection = Selection::Obstacle(0);
         w.refresh(cx);
     });
@@ -478,4 +478,39 @@ fn polygon_rotation_knob_turns_with_the_polygon(cx: &mut TestAppContext) {
     assert!(after.0 > 1400. && (after.1 - 1200.).abs() < 1., "knob followed the rotation: {after:?}");
     let Shape::Polygon { points } = obstacle(&ws, cx) else { panic!() };
     assert!(points[0].distance(vec2(1400., 1000.)) < 1., "{points:?}");
+}
+
+#[gpui::test]
+fn hidden_shapes_cannot_be_clicked_and_groups_toggle_together(cx: &mut TestAppContext) {
+    let (ws, cx) = setup(cx);
+    ws.update(cx, |w, cx| {
+        for (k, x) in [500., 1500.].into_iter().enumerate() {
+            w.doc.map.regions.push(crate::model::Region {
+                name: format!("R{k}"),
+                color: crate::model::RegionColor::Blue,
+                shape: Shape::Circle { center: vec2(x, 1000.), radius: 200. },
+                hidden: false,
+            });
+        }
+        w.changed(cx);
+    });
+
+    ws.update(cx, |w, cx| w.toggle_hidden(Selection::Region(0), cx));
+    click(&ws, cx, 500., 1000.);
+    assert_eq!(ws.read_with(cx, |w, _| w.selection), Selection::None);
+    click(&ws, cx, 1500., 1000.);
+    assert_eq!(ws.read_with(cx, |w, _| w.selection), Selection::Region(1));
+
+    // One visible: the group hides all; then shows all.
+    let hidden = |ws: &Entity<Workspace>, cx: &mut VisualTestContext| {
+        ws.read_with(cx, |w, _| w.doc.map.regions.iter().map(|r| r.hidden).collect::<Vec<_>>())
+    };
+    ws.update(cx, |w, cx| w.toggle_group_hidden(super::panels::Group::Regions, cx));
+    assert_eq!(hidden(&ws, cx), [true, true]);
+    ws.update(cx, |w, cx| w.toggle_group_hidden(super::panels::Group::Regions, cx));
+    assert_eq!(hidden(&ws, cx), [false, false]);
+
+    // Visibility changes are undoable.
+    cx.simulate_keystrokes("ctrl-z");
+    assert_eq!(hidden(&ws, cx), [true, true]);
 }

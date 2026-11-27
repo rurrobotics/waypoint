@@ -127,6 +127,7 @@ mod tests {
         doc.map.obstacles.push(Obstacle {
             name: "Ramp".into(),
             shape: Shape::Rect { center: vec2(1500., 1850.), size: vec2(1200., 300.), rotation: 0. },
+            hidden: false,
         });
         doc.robot.width = 280.;
         doc.paths.push(Path::new("Not part of a template", Pose::default()));

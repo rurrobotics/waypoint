@@ -75,7 +75,11 @@ impl Workspace {
         if e.button != MouseButton::Left {
             return;
         }
-        self.measure = None;
+        // A finished measurement stays on screen until the next click; one in
+        // progress waits for its second click.
+        if self.pending != Some(Pending::Measure) {
+            self.measure = None;
+        }
 
         // Handles of the selected obstacle or region come first.
         if self.pending.is_none()
@@ -113,11 +117,18 @@ impl Workspace {
                     _ => self.drag = Drag::Create { start: p, current: p },
                 }
             }
-            Some(Pending::Measure) => {
-                let p = self.snap_point(world, &e.modifiers);
-                self.measure = Some((p, p));
-                self.drag = Drag::Measure;
-            }
+            // Click, then click (or drag and release).
+            Some(Pending::Measure) => match self.measure {
+                Some((from, _)) => {
+                    self.measure = Some((from, self.measure_end(from, world, &e.modifiers)));
+                    self.pending = None;
+                }
+                None => {
+                    let p = self.snap_point(world, &e.modifiers);
+                    self.measure = Some((p, p));
+                    self.drag = Drag::Measure;
+                }
+            },
         }
         self.refresh(cx);
     }
@@ -277,7 +288,14 @@ impl Workspace {
         }
 
         match self.drag {
-            Drag::None => {}
+            // Between the two clicks of a measurement the end follows the pointer.
+            Drag::None => {
+                if self.pending == Some(Pending::Measure)
+                    && let (Some(x), Some((from, _))) = (x, self.measure)
+                {
+                    self.measure = Some((from, self.measure_end(from, x.to_world(mouse), &e.modifiers)));
+                }
+            }
             Drag::Pan { last } => {
                 self.view.pan += mouse - last;
                 self.auto_fit = false;
@@ -365,7 +383,17 @@ impl Workspace {
                     self.refresh(cx);
                 }
             }
-            Drag::Measure => self.pending = None,
+            // Released after dragging: done. Released in place: wait for the
+            // second click.
+            Drag::Measure => {
+                let dragged = match (self.measure, self.xform()) {
+                    (Some((a, b)), Some(x)) => x.to_screen(a).distance(x.to_screen(b)) > 4.,
+                    _ => false,
+                };
+                if dragged {
+                    self.pending = None;
+                }
+            }
             Drag::Handle { .. } | Drag::Object { .. } | Drag::ShapeHandle { .. } | Drag::Scrub { .. } => {
                 self.end_drag_edit();
             }

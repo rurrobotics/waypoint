@@ -439,6 +439,30 @@ fn circle_radius_and_polygon_vertex_handles(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn measure_with_two_clicks(cx: &mut TestAppContext) {
+    let (ws, cx) = setup(cx);
+    cx.simulate_keystrokes("m");
+    click(&ws, cx, 500., 500.);
+    // Still measuring; the end follows the pointer.
+    let p = at(&ws, cx, 900., 800.);
+    cx.simulate_mouse_move(p, None, Modifiers::none());
+    ws.read_with(cx, |w, _| {
+        assert_eq!(w.pending, Some(Pending::Measure));
+        assert_eq!(w.measure, Some((vec2(500., 500.), vec2(900., 800.))));
+    });
+    click(&ws, cx, 900., 800.);
+    ws.read_with(cx, |w, _| {
+        assert_eq!(w.pending, None);
+        let (a, b) = w.measure.expect("kept after finishing");
+        assert_eq!(a.distance(b), 500.);
+    });
+    // Moving afterwards doesn't change the finished measurement.
+    let p = at(&ws, cx, 2000., 1500.);
+    cx.simulate_mouse_move(p, None, Modifiers::none());
+    ws.read_with(cx, |w, _| assert_eq!(w.measure, Some((vec2(500., 500.), vec2(900., 800.)))));
+}
+
+#[gpui::test]
 fn polygon_rotation_knob_turns_with_the_polygon(cx: &mut TestAppContext) {
     use crate::ui::canvas::ShapeHandle;
     let (ws, cx) = setup(cx);

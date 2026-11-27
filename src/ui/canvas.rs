@@ -176,9 +176,14 @@ pub fn shape_handles(shape: &Shape, x: &Xform) -> Vec<(ShapeHandle, Vec2, Option
             vec![(ShapeHandle::Radius, x.to_screen(*center + vec2(*radius, 0.)), None)]
         }
         Shape::Polygon { points } => {
-            let c = x.to_screen(shape.center());
+            // Polygons store no rotation, so the knob points from the centre
+            // through the middle of the first edge and turns with the shape.
+            let center = shape.center();
+            let c = x.to_screen(center);
+            let towards = points.first().zip(points.get(1)).map(|(&a, &b)| a.lerp(b, 0.5) - center);
+            let angle = towards.filter(|d| d.length() > 1e-6).map_or(PI / 2., Vec2::angle);
             let reach = points.iter().map(|&p| x.to_screen(p).distance(c)).fold(0., f64::max);
-            let knob = c + x.dir(PI / 2.) * (reach + ROTATE_KNOB);
+            let knob = c + x.dir(angle) * (reach + ROTATE_KNOB);
             let mut out = vec![(ShapeHandle::Rotate, knob, Some(c))];
             out.extend(points.iter().enumerate().map(|(i, &p)| (ShapeHandle::Vertex(i), x.to_screen(p), None)));
             out

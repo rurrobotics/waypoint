@@ -437,3 +437,21 @@ fn circle_radius_and_polygon_vertex_handles(cx: &mut TestAppContext) {
     let Shape::Polygon { points } = obstacle(&ws, cx) else { panic!() };
     assert_eq!(points[2], vec2(1600., 1600.));
 }
+
+#[gpui::test]
+fn polygon_rotation_knob_turns_with_the_polygon(cx: &mut TestAppContext) {
+    use crate::ui::canvas::ShapeHandle;
+    let (ws, cx) = setup(cx);
+    let square = vec![vec2(1000., 1000.), vec2(1400., 1000.), vec2(1400., 1400.), vec2(1000., 1400.)];
+    set_obstacle(&ws, cx, Shape::Polygon { points: square });
+    let before = shape_handle_at(&ws, cx, ShapeHandle::Rotate);
+    // First edge is the bottom one: the knob starts below the centre.
+    assert!(before.1 < 1000. && (before.0 - 1200.).abs() < 1., "{before:?}");
+
+    // Drag it round to the right of the centre: a quarter turn.
+    drag(&ws, cx, before, (1900., 1200.));
+    let after = shape_handle_at(&ws, cx, ShapeHandle::Rotate);
+    assert!(after.0 > 1400. && (after.1 - 1200.).abs() < 1., "knob followed the rotation: {after:?}");
+    let Shape::Polygon { points } = obstacle(&ws, cx) else { panic!() };
+    assert!(points[0].distance(vec2(1400., 1000.)) < 1., "{points:?}");
+}

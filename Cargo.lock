@@ -6117,6 +6117,8 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,3 +1,7 @@
+// Geometry is wired into the UI in a later commit.
+#[allow(dead_code, unused_imports)]
+mod geom;
+
 use gpui::{App, Application, Bounds, WindowBounds, WindowOptions, div, prelude::*, px, size};
 
 struct Waypoint;

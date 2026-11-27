@@ -514,3 +514,30 @@ fn hidden_shapes_cannot_be_clicked_and_groups_toggle_together(cx: &mut TestAppCo
     cx.simulate_keystrokes("ctrl-z");
     assert_eq!(hidden(&ws, cx), [true, true]);
 }
+
+#[gpui::test]
+fn side_docks_collapse_and_reopen(cx: &mut TestAppContext) {
+    let (ws, cx) = setup(cx);
+    let canvas_width = |ws: &Entity<Workspace>, cx: &mut VisualTestContext| {
+        for _ in 0..2 {
+            cx.update(|window, _| window.refresh());
+            cx.run_until_parked();
+        }
+        ws.read_with(cx, |w, _| w.canvas_bounds.get().unwrap().size.width)
+    };
+    let open = canvas_width(&ws, cx);
+
+    cx.simulate_keystrokes("ctrl-b");
+    let left_closed = canvas_width(&ws, cx);
+    assert!(left_closed > open);
+    ws.read_with(cx, |w, _| {
+        assert!(!w.layout.is_open(Side::Left));
+        assert_eq!(w.layout.left.panels, [PanelId::Selected, PanelId::Outline], "panels stay assigned");
+    });
+
+    cx.simulate_keystrokes("ctrl-alt-b");
+    assert!(canvas_width(&ws, cx) > left_closed);
+
+    cx.simulate_keystrokes("ctrl-b ctrl-alt-b");
+    assert_eq!(canvas_width(&ws, cx), open);
+}

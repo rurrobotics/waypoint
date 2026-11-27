@@ -50,6 +50,9 @@ pub struct Dock {
     /// Share of the dock's height per panel; sums to 1.
     pub shares: Vec<f32>,
     pub width: f32,
+    /// Folded away to give the canvas room; the panels stay assigned.
+    #[serde(default)]
+    pub collapsed: bool,
 }
 
 impl Dock {
@@ -71,8 +74,8 @@ pub struct Layout {
 impl Default for Layout {
     fn default() -> Self {
         Self {
-            left: Dock { panels: vec![PanelId::Selected, PanelId::Outline], shares: vec![0.45, 0.55], width: 280. },
-            right: Dock { panels: vec![PanelId::Settings], shares: vec![1.], width: 300. },
+            left: Dock { panels: vec![PanelId::Selected, PanelId::Outline], shares: vec![0.45, 0.55], width: 280., collapsed: false },
+            right: Dock { panels: vec![PanelId::Settings], shares: vec![1.], width: 300., collapsed: false },
         }
     }
 }
@@ -90,6 +93,17 @@ impl Layout {
             Side::Left => &mut self.left,
             Side::Right => &mut self.right,
         }
+    }
+
+    /// True if the dock is shown: it has panels and isn't collapsed.
+    pub fn is_open(&self, side: Side) -> bool {
+        let dock = self.dock(side);
+        !dock.collapsed && !dock.panels.is_empty()
+    }
+
+    pub fn toggle_collapsed(&mut self, side: Side) {
+        let dock = self.dock_mut(side);
+        dock.collapsed = !dock.collapsed;
     }
 
     #[cfg(test)]
@@ -111,6 +125,8 @@ impl Layout {
             }
         }
         let dock = self.dock_mut(to);
+        // Dropping a panel on a collapsed dock opens it.
+        dock.collapsed = false;
         let i = before.and_then(|b| dock.panels.iter().position(|&p| p == b)).unwrap_or(dock.panels.len());
         // The newcomer gets an equal share.
         let share = 1. / (dock.panels.len() + 1) as f32;
@@ -224,6 +240,19 @@ mod tests {
     }
 
     #[test]
+    fn collapsing_keeps_panels_and_a_drop_reopens() {
+        let mut l = Layout::default();
+        l.toggle_collapsed(Side::Right);
+        assert!(!l.is_open(Side::Right));
+        assert_eq!(l.right.panels, [PanelId::Settings]);
+        l.move_panel(PanelId::Outline, Side::Right, None);
+        assert!(l.is_open(Side::Right));
+        // Older layout files have no `collapsed` field.
+        let old = r#"{"panels":["Settings"],"shares":[1.0],"width":300.0}"#;
+        assert!(!serde_json::from_str::<Dock>(old).unwrap().collapsed);
+    }
+
+    #[test]
     fn resize_is_clamped() {
         let mut l = Layout::default();
         l.set_width(Side::Left, 10.);
@@ -236,8 +265,8 @@ mod tests {
     #[test]
     fn sanitize_restores_missing_and_duplicate_panels() {
         let broken = Layout {
-            left: Dock { panels: vec![PanelId::Outline, PanelId::Outline], shares: vec![1.], width: 9999. },
-            right: Dock { panels: vec![], shares: vec![], width: 300. },
+            left: Dock { panels: vec![PanelId::Outline, PanelId::Outline], shares: vec![1.], width: 9999., collapsed: false },
+            right: Dock { panels: vec![], shares: vec![], width: 300., collapsed: false },
         }
         .sanitize();
         assert_eq!(broken.left.panels, [PanelId::Outline]);

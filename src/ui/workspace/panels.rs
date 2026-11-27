@@ -194,7 +194,8 @@ impl Workspace {
         let dock = self.layout.dock(side);
         let accent = t.accent;
         let on_drop = cx.listener(move |this, p: &DraggedPanel, _, cx| this.move_panel(p.0, side, None, cx));
-        if dock.panels.is_empty() {
+        // A collapsed dock is only a drop zone while a panel is dragged.
+        if dock.panels.is_empty() || dock.collapsed {
             return cx.has_active_drag().then(|| {
                 div()
                     .flex()
@@ -312,7 +313,7 @@ impl Workspace {
 
     /// Drag handle between a dock and the canvas.
     pub(super) fn width_handle(&self, side: Side, t: &Theme, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
-        if self.layout.dock(side).panels.is_empty() {
+        if !self.layout.is_open(side) {
             return None;
         }
         let accent = t.accent;

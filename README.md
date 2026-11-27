@@ -37,7 +37,8 @@ It's written in Rust with [GPUI](https://www.gpui.rs/) and runs on Linux
 - **Dockable panels.** *Selected* (properties of what's selected), *Outline*
   (everything on the table) and *Settings* (Robot / Map / Project tabs). Drag a
   panel by its header to the other side or reorder it; drag the edges to resize.
-  The layout is remembered.
+  The panel icons at the right of the toolbar (`Ctrl+B` / `Ctrl+Alt+B`) collapse
+  the left or right dock to give the table more room. The layout is remembered.
 - Undo/redo, grid snapping, light and dark theme following the system.
 
 ## Install

@@ -52,6 +52,8 @@ actions!(
         NewObstacle,
         NewRegion,
         StartMeasure,
+        ToggleLeftDock,
+        ToggleRightDock,
         Quit,
     ]
 );
@@ -69,6 +71,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-shift-s", SaveProjectAs, ws),
         KeyBinding::new("secondary-e", ExportJson, ws),
         KeyBinding::new("secondary-q", Quit, None),
+        KeyBinding::new("secondary-b", ToggleLeftDock, ws),
+        KeyBinding::new("secondary-alt-b", ToggleRightDock, ws),
         KeyBinding::new("p", NewPath, canvas),
         KeyBinding::new("o", NewObstacle, canvas),
         KeyBinding::new("r", NewRegion, canvas),
@@ -567,6 +571,21 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Collapses or reopens a side dock; the panels stay where they are.
+    pub(super) fn toggle_dock(&mut self, side: Side, cx: &mut Context<Self>) {
+        self.layout.toggle_collapsed(side);
+        self.layout.save();
+        cx.notify();
+    }
+
+    fn toggle_left_dock(&mut self, _: &ToggleLeftDock, _: &mut Window, cx: &mut Context<Self>) {
+        self.toggle_dock(Side::Left, cx);
+    }
+
+    fn toggle_right_dock(&mut self, _: &ToggleRightDock, _: &mut Window, cx: &mut Context<Self>) {
+        self.toggle_dock(Side::Right, cx);
+    }
+
     fn fit_view(&mut self, _: &FitView, _: &mut Window, cx: &mut Context<Self>) {
         self.auto_fit = true;
         self.last_canvas_size = Vec2::ZERO;
@@ -658,6 +677,21 @@ impl Workspace {
             .child(icon_button("fit", Icon::Fit, "Fit table (F)", false, t).on_click(cx.listener(|this, _, w, cx| {
                 this.fit_view(&FitView, w, cx)
             })))
+            .child(sep())
+            .child(
+                icon_button("toggle-left-dock", Icon::PanelLeft, "Toggle left panels (Ctrl+B)", self.layout.is_open(Side::Left), t)
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_dock(Side::Left, cx))),
+            )
+            .child(
+                icon_button(
+                    "toggle-right-dock",
+                    Icon::PanelRight,
+                    "Toggle right panels (Ctrl+Alt+B)",
+                    self.layout.is_open(Side::Right),
+                    t,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_dock(Side::Right, cx))),
+            )
             .child(
                 primary_button("file-export", Some(Icon::Download), "Export", t)
                     .on_click(cx.listener(|this, _, w, cx| this.export_json(&ExportJson, w, cx))),
@@ -949,6 +983,8 @@ impl Render for Workspace {
             .track_focus(&self.focus)
             .key_context("Workspace")
             .on_action(cx.listener(Self::undo))
+            .on_action(cx.listener(Self::toggle_left_dock))
+            .on_action(cx.listener(Self::toggle_right_dock))
             .on_action(cx.listener(Self::redo))
             .on_action(cx.listener(Self::new_project))
             .on_action(cx.listener(Self::open_project))

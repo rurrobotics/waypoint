@@ -6,6 +6,7 @@
     "width": 3000.0,
     "height": 2000.0,
     "origin": "bottom-left",
+    "background": "table.svg",
     "obstacles": [],
     "regions": []
   },

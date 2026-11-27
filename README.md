@@ -24,7 +24,8 @@ It's written in Rust with [GPUI](https://www.gpui.rs/) and runs on Linux
   sweep circle), collisions with walls and obstacles turn red, and the status
   bar shows the collision count and minimum clearance. Heading jumps are
   flagged.
-- **The table.** Load the year's playground image as the background, then draw
+- **The table.** Load the year's playground image (SVG, PNG or JPG) as the
+  background, then draw
   obstacles and coloured regions of interest (start zones, scoring areas…).
   Rectangles, circles and convex polygons; hold **Shift** for squares.
 - **Templates.** The app opens on the default template shipped with it
@@ -148,10 +149,18 @@ season:
 2. Copy the result over `assets/templates/default.json`.
 3. To ship the playground image, put it in `assets/templates/` and set
    `"background": "<image file name>"` in the template. It is embedded in the
-   binary, so it works on every machine.
+   binary, so it works on every machine. The default template ships the
+   Eurobot table as `table.svg`.
 
 Rebuild to pick up the change; `cargo test` checks that every shipped
 template parses.
+
+### Background images
+
+SVG, PNG and JPG work. An SVG drawn in millimetres (`viewBox="0 0 3000 2000"`)
+lines up with the table exactly. SVGs are rendered in the background at 4096 px
+on the long side; text in them uses the app's fonts (Inter, JetBrains Mono),
+so the table looks the same on every machine.
 
 ### Where things are stored
 

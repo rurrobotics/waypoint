@@ -7,14 +7,16 @@ mod panels;
 #[cfg(test)]
 mod tests;
 
+use anyhow::Context as _;
 use std::cell::Cell;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{
     App, Bounds, Context, CursorStyle, FocusHandle, Focusable, FontWeight, KeyBinding, MouseButton,
-    ObjectFit, Pixels, SharedString, Subscription, Window, actions, canvas, div, img, prelude::*, px,
+    ImageSource, ObjectFit, Pixels, RenderImage, SharedString, Subscription, Task, Window, actions, canvas, div, img, prelude::*, px,
 };
 
 use crate::geom::collision::{self, Report};
@@ -22,6 +24,7 @@ use crate::geom::{Path, Sample, Shape, Vec2, vec2};
 use crate::model::{Doc, History};
 use crate::theme::{FONT_MONO, FONT_SANS, RADIUS, Theme};
 use crate::titlebar::{TitlebarState, window_frame};
+use crate::ui::background;
 use crate::ui::canvas::{self, Frame, Handle, Selection, ShapeHandle, View, Xform};
 use crate::ui::dock::{Layout, Side};
 use crate::ui::fields::Edit;
@@ -137,6 +140,15 @@ struct Analysis {
     report: Option<Report>,
 }
 
+/// An SVG background rendered off the UI thread (see `ui::background`).
+struct SvgBackground {
+    /// The `Map::background` value it was rendered from.
+    source: PathBuf,
+    /// `None` while rendering (or when rendering failed).
+    image: Option<Arc<RenderImage>>,
+    _task: Task<()>,
+}
+
 struct Status {
     text: String,
     error: bool,
@@ -178,6 +190,7 @@ pub struct Workspace {
     edit: Option<Edit>,
     settings_tab: panels::SettingsTab,
     layout: Layout,
+    svg_background: Option<SvgBackground>,
     /// The New ▾ template menu is open.
     new_menu: bool,
     /// Where user templates live (`None` in tests, so they never touch the user's files).
@@ -240,6 +253,7 @@ impl Workspace {
             edit: None,
             settings_tab: Default::default(),
             layout: Layout::load(),
+            svg_background: None,
             new_menu: false,
             templates_dir: if cfg!(test) { None } else { crate::model::template::dir() },
             collapsed: HashSet::new(),
@@ -343,6 +357,45 @@ impl Workspace {
             self.analysis = Some(Analysis { revision: self.revision, active: self.active_path, samples, report });
         }
         self.analysis.as_ref().unwrap()
+    }
+
+    /// Starts rendering the map's background when it is an SVG that hasn't
+    /// been rendered yet. Raster images are drawn by gpui directly.
+    fn ensure_svg_background(&mut self, cx: &mut Context<Self>) {
+        let source = self.doc.map.background.clone().filter(|bg| background::is_svg(bg));
+        let Some(source) = source else {
+            self.svg_background = None;
+            return;
+        };
+        if self.svg_background.as_ref().is_some_and(|b| b.source == source) {
+            return;
+        }
+        let asset = self.doc.map.background_asset().map(str::to_owned);
+        let file = source.clone();
+        let task = cx.spawn(async move |this, cx| {
+            let rendered = cx
+                .background_executor()
+                .spawn(async move {
+                    let bytes = match asset {
+                        Some(asset) => crate::assets::get(&asset)
+                            .map(<[u8]>::to_vec)
+                            .ok_or_else(|| anyhow::anyhow!("{asset} is not shipped with the app"))?,
+                        None => std::fs::read(&file).with_context(|| format!("reading {}", file.display()))?,
+                    };
+                    background::render_svg(&bytes, background::MAX_SIDE)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                let Some(bg) = this.svg_background.as_mut() else { return };
+                match rendered {
+                    Ok(image) => bg.image = Some(image),
+                    Err(e) => this.set_status(format!("Background: {e:#}"), true),
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        self.svg_background = Some(SvgBackground { source, image: None, _task: task });
     }
 
     fn xform(&self) -> Option<Xform> {
@@ -646,12 +699,16 @@ impl Workspace {
         let bounds_cell = self.canvas_bounds.clone();
         let view = self.view;
         let size = self.doc.map.size() * view.zoom;
-        // A shipped template's image is embedded; anything else is a file.
-        let background = self.doc.map.background.clone().filter(|_| view.zoom > 0.).map(|bg| {
-            match self.doc.map.background_asset() {
-                Some(asset) => gpui::ImageSource::from(asset.to_string()),
-                None => gpui::ImageSource::from(bg),
-            }
+        // SVGs are pre-rendered (see `ensure_svg_background`); other images
+        // are loaded by gpui, from the app (shipped templates) or from disk.
+        let svg = self.svg_background.as_ref();
+        let rendering_svg = svg.is_some_and(|b| b.image.is_none());
+        let background = self.doc.map.background.clone().filter(|_| view.zoom > 0.).and_then(|bg| match svg {
+            Some(b) => b.image.clone().map(ImageSource::from),
+            None => Some(match self.doc.map.background_asset() {
+                Some(asset) => ImageSource::from(asset.to_string()),
+                None => ImageSource::from(bg),
+            }),
         });
         let cursor = match (&self.drag, self.pending) {
             (Drag::Pan { .. } | Drag::Handle { .. } | Drag::Object { .. } | Drag::ShapeHandle { .. }, _) => {
@@ -713,6 +770,15 @@ impl Workspace {
             )
             .when(self.pending == Some(Pending::DrawPath), |d| {
                 d.child(div().absolute().top_3().left_0().right_0().flex().justify_center().child(draw_bar))
+            })
+            .when(rendering_svg, |d| {
+                d.child(div().absolute().bottom_3().left_0().right_0().flex().justify_center().child(badge(
+                    "Rendering table…".into(),
+                    false,
+                    t.accent,
+                    t.accent_fg,
+                    t,
+                )))
             })
     }
 
@@ -792,6 +858,7 @@ impl Render for Workspace {
             self.last_canvas_size = size;
         }
 
+        self.ensure_svg_background(cx);
         let preview = self.preview();
         self.ensure_analysis();
         let analysis = self.analysis.as_ref().unwrap();

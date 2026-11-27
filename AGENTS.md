@@ -38,6 +38,7 @@ build.rs           embeds every file in assets/templates/ (generates TEMPLATE_FI
     mod.rs         config_dir()
   export/          Exporter trait; json.rs writes segments with parameters only
   ui/
+    background.rs  renders SVG backgrounds at a bounded size (resvg)
     canvas.rs      View/Xform (world↔screen), handles & hit-testing, painting
     dock.rs        dock Layout (panels per side, widths, splits), persisted
     fields.rs      inline field editor (Field enum, Edit, key handling)
@@ -117,6 +118,12 @@ change the initial value in `Workspace::new`, take the screenshot, and revert.
   `asset:templates/<file>` (`map::ASSET_PREFIX`), loaded through the
   `AssetSource` rather than from disk. UI tests reset `doc` to
   `Doc::default()`, so they don't depend on the template's contents.
+- **SVG backgrounds** must not go through gpui's `img()`: it rasterises SVGs at
+  intrinsic size × 2, and a table in millimetres becomes a ~22 000 px bitmap
+  that the GPU clamps at 8192 px (most of the table smears). `ui::background`
+  renders them at `MAX_SIDE` px on a background task with the app's embedded
+  fonts (loading system fonts took ~10 s); `Workspace::ensure_svg_background`
+  caches the result per background. Keep `resvg` on gpui's version (0.45).
 - **libc pin.** `Cargo.toml` pins `libc < 0.2.190` because gpui's
   `xattr 0.2.3` uses `libc::ENOATTR`, which newer libc removed on Linux. Drop it
   when gpui is updated.

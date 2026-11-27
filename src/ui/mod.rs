@@ -1,3 +1,4 @@
+pub mod background;
 pub mod canvas;
 pub mod dock;
 pub mod fields;

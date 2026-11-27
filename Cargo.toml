@@ -2,6 +2,11 @@
 name = "waypoint"
 version = "0.1.0"
 edition = "2024"
+description = "Desktop editor for planning Eurobot robot paths"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/rurrobotics/waypoint"
+readme = "README.md"
+publish = false
 
 [dependencies]
 anyhow = "1.0.105"

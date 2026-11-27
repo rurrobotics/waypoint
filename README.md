@@ -37,7 +37,7 @@ It's written in Rust with [GPUI](https://www.gpui.rs/) and runs on Linux
 ## Install
 
 Download an archive for your platform from the
-[releases](../../releases) page, unpack it and run `waypoint`
+[releases](https://github.com/rurrobotics/waypoint/releases) page, unpack it and run `waypoint`
 (`waypoint.exe` on Windows). Open a project directly with
 `waypoint strategy.json`.
 
@@ -176,3 +176,11 @@ checksums. Tags containing `-` (`v0.2.0-rc1`) become prereleases.
 
 - Fonts: [Inter](https://rsms.me/inter/) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/), SIL Open Font License (`assets/fonts`)
 - Icons: [Lucide](https://lucide.dev/), ISC License (`assets/icons`)
+- Table artwork: the official Eurobot 2027 playing table (`assets/templates/table.svg`), © its authors (Eurobot / Planète Sciences). It isn't covered by this project's licence.
+
+## License
+
+Waypoint is free software: you can redistribute it and/or modify it under the
+terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See [`LICENSE`](LICENSE).

@@ -963,7 +963,6 @@ impl Render for Workspace {
             .size_full()
             .flex()
             .flex_col()
-            .font_family(FONT_SANS)
             .child(
                 div()
                     .flex_1()
@@ -978,8 +977,11 @@ impl Render for Workspace {
             )
             .child(status);
 
+        // No system fonts are loaded (see `main.rs`): set the font at the root
+        // so nothing falls back to gpui's default `.SystemUIFont`.
         div()
             .size_full()
+            .font_family(FONT_SANS)
             .track_focus(&self.focus)
             .key_context("Workspace")
             .on_action(cx.listener(Self::undo))

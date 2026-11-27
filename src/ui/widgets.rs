@@ -6,7 +6,7 @@ use gpui::{
 };
 
 use crate::assets::Icon;
-use crate::theme::{FONT_MONO, RADIUS, Theme};
+use crate::theme::{FONT_MONO, FONT_SANS, RADIUS, Theme};
 
 /// An icon; svgs don't inherit the text colour, so it's passed explicitly.
 /// Buttons sit in the toolbar, which is also the window's drag area: keep
@@ -25,7 +25,8 @@ pub struct Tooltip(SharedString);
 impl Render for Tooltip {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = Theme::get(cx);
-        div().px_2().py_1().rounded(RADIUS).bg(t.fg).text_color(t.bg).text_size(px(12.)).child(self.0.clone())
+        // A tooltip is its own view: it doesn't inherit the workspace font.
+        div().font_family(FONT_SANS).px_2().py_1().rounded(RADIUS).bg(t.fg).text_color(t.bg).text_size(px(12.)).child(self.0.clone())
     }
 }
 

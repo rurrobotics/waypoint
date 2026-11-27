@@ -142,6 +142,12 @@ change the initial value in `Workspace::new`, take the screenshot, and revert.
   xdg-decoration support) it still reports `Decorations::Server`, so no title
   bar would be drawn at all. Test with both `cargo run` (Wayland) and
   `WAYLAND_DISPLAY= cargo run` (X11).
+- **No system fonts.** On Linux gpui's text system loads every system font at
+  start-up (seconds with thousands installed), so `main.rs` hides them while
+  `Application::new` runs (`without_system_fonts`). Every text must therefore
+  use an embedded font: the workspace root sets `FONT_SANS`, and views with
+  their own root (tooltips) must set it too, or gpui panics resolving
+  `.SystemUIFont`.
 - `svg()` icons don't inherit the text colour: pass it to `widgets::icon`.
 - Rust 2024 `impl Trait` returns capture all lifetimes. Render helpers that
   take `&self` and `cx` return `impl IntoElement + use<>` so several can be

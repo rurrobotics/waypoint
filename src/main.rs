@@ -21,7 +21,7 @@ use theme::Theme;
 use ui::workspace::{self, Workspace};
 
 fn main() {
-    Application::new().with_assets(assets::Assets).run(|cx: &mut App| {
+    without_system_fonts(Application::new).with_assets(assets::Assets).run(|cx: &mut App| {
         cx.text_system()
             .add_fonts(theme::FONTS.iter().map(|f| Cow::Borrowed(*f)).collect())
             .expect("embedded fonts are valid");
@@ -58,4 +58,29 @@ fn main() {
         .unwrap();
         cx.activate(true);
     });
+}
+
+/// Runs `f` (gpui's `Application::new`) with fontconfig pointed at an empty
+/// config. On Linux gpui's text system loads every system font up front, which
+/// takes seconds on a machine with thousands of fonts; the UI only uses the
+/// embedded fonts (`theme::FONTS`). The variable is restored afterwards so
+/// processes we spawn (`xdg-open`) see the user's fonts.
+fn without_system_fonts<T>(f: impl FnOnce() -> T) -> T {
+    if !cfg!(any(target_os = "linux", target_os = "freebsd")) {
+        return f();
+    }
+    const VAR: &str = "FONTCONFIG_FILE";
+    let previous = std::env::var_os(VAR);
+    // SAFETY: called first thing in `main`, before gpui starts any threads.
+    unsafe { std::env::set_var(VAR, "/dev/null") };
+    let result = f();
+    // SAFETY: gpui's worker threads exist now but are idle; nothing else in
+    // the process reads the environment concurrently at this point.
+    unsafe {
+        match previous {
+            Some(v) => std::env::set_var(VAR, v),
+            None => std::env::remove_var(VAR),
+        }
+    }
+    result
 }
